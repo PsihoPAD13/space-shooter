@@ -45,7 +45,7 @@
 
 ### 1. Клонируй репозиторий
 ```bash
-git clone https://github.com/твой-ник/space-shooter.git
+git clone https://github.com/PsihoPAD13/space-shooter.git
 cd space-shooter
 ```
 
