@@ -1,0 +1,21 @@
+{
+    "game": {
+        "difficulty": "normal",
+        "sound_volume": 0.8,
+        "music_volume": 0.7000000000000001,
+        "fullscreen": false,
+        "show_fps": true,
+        "high_score": 809
+    },
+    "controls": {
+        "mouse_control": false,
+        "keyboard_control": true,
+        "mouse_sensitivity": 0.8
+    },
+    "graphics": {
+        "particle_density": 1.5,
+        "star_density": 1.0,
+        "show_health_bars": false,
+        "show_minimap": true
+    }
+}
