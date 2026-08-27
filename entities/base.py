@@ -15,6 +15,7 @@ class EnemyBase:
         self.health = 100
         self.max_health = 100
         self.alive = True
+        self.stationary = True
         
         # Настройки базы
         self.spawn_rate = 60  # Кадров между спавнами
@@ -42,18 +43,21 @@ class EnemyBase:
         self.types = self.spawn_types.get(base_type, ['scout'])
     
     def update(self, enemies, player_x, player_y, spawn_func):
-        """Обновляет базу — спавнит врагов с контролем количества"""
+        """Обновляет базу — спавнит врагов с жёстким контролем"""
         if not self.alive:
             return
         
-        # ===== СЧИТАЕМ ТОЛЬКО ЖИВЫХ ВРАГОВ ОТ ЭТОЙ БАЗЫ =====
-        alive_enemies = []
+        # ===== СЧИТАЕМ ЖИВЫХ ВРАГОВ ОТ ЭТОЙ БАЗЫ =====
+        alive_count = 0
         for enemy in enemies:
-            # Проверяем, что враг жив и создан этой базой
-            if hasattr(enemy, 'base_id') and enemy.base_id == id(self) and enemy.health > 0:
-                alive_enemies.append(enemy)
+            # Проверяем, что враг создан этой базой И жив
+            if (hasattr(enemy, 'base_id') and 
+                enemy.base_id == id(self) and 
+                enemy.health > 0):
+                alive_count += 1
         
-        alive_count = len(alive_enemies)
+        # ===== ЛОГИРУЕМ ДЛЯ ОТЛАДКИ =====
+        # print(f"[BASE] {self.base_type} Живых врагов: {alive_count}/{self.max_enemies}")
         
         # ===== ЕСЛИ ВРАГОВ МЕНЬШЕ МАКСИМУМА — СПАВНИМ =====
         if alive_count < self.max_enemies:
@@ -74,7 +78,10 @@ class EnemyBase:
                     enemy.base_id = id(self)  # Привязываем к базе
                     enemies.append(enemy)
                     self.spawn_timer = 0
-                    print(f"[BASE] Спавн {enemy_type} (всего живых: {alive_count + 1}/{self.max_enemies})")
+                    # print(f"[BASE] Спавн {enemy_type} (всего живых: {alive_count + 1}/{self.max_enemies})")
+        else:
+            # Если врагов достаточно — сбрасываем таймер, чтобы не спавнить
+            self.spawn_timer = 0
     
     def take_damage(self, enemies, damage=1):
         """Получение урона с очисткой врагов при уничтожении"""
@@ -150,7 +157,8 @@ class EnemyBase:
         removed = 0
         for enemy in enemies[:]:
             if hasattr(enemy, 'base_id') and enemy.base_id == id(self):
-                # Удаляем врага (можно добавить эффект исчезновения)
+                # Добавляем эффект исчезновения (взрыв)
+                # (можно добавить частицы)
                 enemies.remove(enemy)
                 removed += 1
         if removed > 0:
