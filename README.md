@@ -47,3 +47,14 @@
 ```bash
 git clone https://github.com/твой-ник/space-shooter.git
 cd space-shooter
+```
+
+### 2. Установи зависимости
+```bash
+pip install pygame
+```
+
+### 3. Запусти игру
+```bash
+python main.py
+```
