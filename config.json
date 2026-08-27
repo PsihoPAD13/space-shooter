@@ -5,10 +5,11 @@
         "music_volume": 0.7000000000000001,
         "fullscreen": false,
         "show_fps": true,
-        "high_score": 809
+        "high_score": 809,
+        "debug_mode": true
     },
     "controls": {
-        "mouse_control": false,
+        "mouse_control": true,
         "keyboard_control": true,
         "mouse_sensitivity": 0.8
     },

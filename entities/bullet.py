@@ -1,6 +1,6 @@
 # bullet.py
 import pygame
-from settings import BULLET_RADIUS, BULLET_LIFE, YELLOW, WIDTH, HEIGHT, WORLD_WIDTH, WORLD_HEIGHT
+from settings import BULLET_RADIUS, BULLET_LIFE, YELLOW, WIDTH, HEIGHT
 from utils import wrap_position
 
 class Bullet:

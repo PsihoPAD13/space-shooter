@@ -22,6 +22,7 @@ class SettingsMenu:
             {'label': '-- GAME --', 'key': None, 'type': 'header', 'status': 'info'},
             {'label': 'Difficulty', 'key': 'game.difficulty', 'type': 'choice', 'choices': ['easy', 'normal', 'hard'], 'status': 'working'},
             {'label': 'Show FPS', 'key': 'game.show_fps', 'type': 'toggle', 'status': 'working'},
+            {'label': 'Debug Mode (Cheats)', 'key': 'game.debug_mode', 'type': 'toggle', 'status': 'working'},
             {'label': 'Fullscreen', 'key': 'game.fullscreen', 'type': 'toggle', 'status': 'planned'},
             
             # SOUND

@@ -5,8 +5,8 @@ import pygame
 from settings import (
     ENEMY_RADIUS, ENEMY_BASE_SPEED, ENEMY_MAX_HEALTH,
     ENEMY_SHOOT_DELAY_MIN, ENEMY_SHOOT_DELAY_MAX,
-    ENEMY_BULLET_SPEED, WIDTH, HEIGHT, WORLD_WIDTH, WORLD_HEIGHT,
-    RED, GREEN
+    ENEMY_BULLET_SPEED, WIDTH, HEIGHT,
+    RED, GREEN, CHUNK_SIZE  
 )
 from entities.bullet import Bullet
 from utils import draw_health_bar, distance, wrap_position
@@ -59,7 +59,7 @@ class Enemy:
             self._update_orbit(player_x, player_y)
         
         # Телепортация через края
-        wrap_position(self)
+        # wrap_position(self)
         
         # Кулдаун стрельбы
         if self.shoot_cooldown > 0:
@@ -151,35 +151,33 @@ class Enemy:
         if self.shoot_cooldown > 0:
             return
         
-        # Камикадзе не стреляет
         if self.behavior == 'kamikaze':
             return
         
-        # Стационарные стреляют чаще
         if self.behavior == 'stationary':
             self.shoot_cooldown = self.shoot_delay // 2
         else:
             self.shoot_cooldown = self.shoot_delay
         
-        # Расчет направления с учетом телепортации
+        # ===== РАСЧЁТ НАПРАВЛЕНИЯ (без телепортации) =====
         dx = player_x - self.x
         dy = player_y - self.y
         
-        if abs(dx) > WORLD_WIDTH / 2:
-            dx = WORLD_WIDTH - abs(dx)
-            dx = -dx if self.x > player_x else dx
-        if abs(dy) > WORLD_HEIGHT / 2:
-            dy = WORLD_HEIGHT - abs(dy)
-            dy = -dy if self.y > player_y else dy
+        # Убираем телепортацию — в бесконечном мире она не нужна
+        # if abs(dx) > WORLD_WIDTH / 2:
+        #     dx = WORLD_WIDTH - abs(dx)
+        #     dx = -dx if self.x > player_x else dx
+        # if abs(dy) > WORLD_HEIGHT / 2:
+        #     dy = WORLD_HEIGHT - abs(dy)
+        #     dy = -dy if self.y > player_y else dy
         
         dist = math.sqrt(dx**2 + dy**2)
         if dist > 0:
-            # Разная скорость пуль для разных врагов
             bullet_speed = ENEMY_BULLET_SPEED
             if self.behavior == 'sniper':
-                bullet_speed = ENEMY_BULLET_SPEED * 1.5  # Быстрее
+                bullet_speed = ENEMY_BULLET_SPEED * 1.5
             elif self.behavior == 'tank':
-                bullet_speed = ENEMY_BULLET_SPEED * 0.7  # Медленнее
+                bullet_speed = ENEMY_BULLET_SPEED * 0.7
             
             enemy_bullets.append(Bullet(
                 self.x,
@@ -188,60 +186,63 @@ class Enemy:
                 (dy / dist) * bullet_speed
             ))
     
-    def draw(self, screen, camera_x=0, camera_y=0):
-        """Рисует врага"""
+    def draw(self, screen, camera_x=0, camera_y=0, player_x=0, player_y=0):
+        """Рисует врага с поворотом"""
         screen_x = self.x - camera_x
         screen_y = self.y - camera_y
         
         if screen_x < -50 or screen_x > WIDTH + 50 or screen_y < -50 or screen_y > HEIGHT + 50:
             return
         
-        # Разные формы для разных типов
-        if self.behavior == 'stationary':
-            # Квадрат для стационарных
-            half = self.radius
-            points = [
-                (screen_x - half, screen_y - half),
-                (screen_x + half, screen_y - half),
-                (screen_x + half, screen_y + half),
-                (screen_x - half, screen_y + half)
-            ]
-            pygame.draw.polygon(screen, self.color, points, 2)
-            pygame.draw.polygon(screen, self.color, points, 1)
-            
-        elif self.behavior == 'kamikaze':
-            # Треугольник (острие к игроку)
-            angle = math.atan2(self.speed_y, self.speed_x)
-            points = [
-                (screen_x + math.cos(angle) * self.radius, screen_y + math.sin(angle) * self.radius),
-                (screen_x + math.cos(angle + 2.5) * self.radius, screen_y + math.sin(angle + 2.5) * self.radius),
-                (screen_x + math.cos(angle - 2.5) * self.radius, screen_y + math.sin(angle - 2.5) * self.radius)
-            ]
-            pygame.draw.polygon(screen, self.color, points, 2)
-            pygame.draw.polygon(screen, self.color, points, 1)
-            
+        # ===== ВЫЧИСЛЯЕМ УГОЛ ПОВОРОТА =====
+        angle = 0
+        
+        # Для стационарных — поворачиваем к игроку
+        if self.behavior in ['stationary']:
+            dx = player_x - self.x
+            dy = player_y - self.y
+            if dx != 0 or dy != 0:
+                angle = math.atan2(dy, dx)
+        # Для движущихся — поворачиваем по направлению движения
         else:
-            # Ромб для остальных
-            points = [
-                (screen_x, screen_y - self.radius),
-                (screen_x + self.radius, screen_y),
-                (screen_x, screen_y + self.radius),
-                (screen_x - self.radius, screen_y)
-            ]
-            pygame.draw.polygon(screen, self.color, points, 2)
-            pygame.draw.polygon(screen, self.color, points, 1)
+            speed = math.sqrt(self.speed_x**2 + self.speed_y**2)
+            if speed > 0.5:
+                angle = math.atan2(self.speed_y, self.speed_x)
+        
+        # Получаем вершины
+        type_data = ENEMY_TYPES.get(self.enemy_type, {})
+        vertices = type_data.get('vertices', [])
+        
+        if not vertices:
+            vertices = [(0, -self.radius), (self.radius, 0), (0, self.radius), (-self.radius, 0)]
+        
+        # Поворачиваем вершины
+        rotated_points = []
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        
+        for vx, vy in vertices:
+            rx = vx * cos_a - vy * sin_a
+            ry = vx * sin_a + vy * cos_a
+            px = screen_x + rx
+            py = screen_y + ry
+            rotated_points.append((px, py))
+        
+        # Рисуем
+        pygame.draw.polygon(screen, self.color, rotated_points, 2)
+        pygame.draw.polygon(screen, self.color, rotated_points, 1)
         
         # Полоса здоровья
         if self.max_health > 1:
             draw_health_bar(screen, screen_x, screen_y - self.radius - 8, 
                            self.health, self.max_health, width=30)
         
-        # Эффект взрыва для камикадзе
+        # Взрыв камикадзе
         if self.is_exploding:
             pygame.draw.circle(screen, (255, 200, 50), 
                              (int(screen_x), int(screen_y)), 
                              self.explosion_radius, 3)
-    
+                             
     def take_damage(self, damage=1):
         """Получение урона"""
         self.health -= damage

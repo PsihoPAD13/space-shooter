@@ -15,6 +15,7 @@ class ConfigManager:
                 'fullscreen': False,
                 'show_fps': False,
                 'high_score': 0,
+                'debug_mode': False,
             },
             'controls': {
                 'mouse_control': True,
