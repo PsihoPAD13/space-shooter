@@ -322,29 +322,35 @@ class Game:
         """Обновление вражеских пуль"""
         for bullet in self.enemy_bullets[:]:
             bullet.update()
+            
+            # Если пуля умерла — удаляем и пропускаем
             if bullet.is_dead():
                 self.enemy_bullets.remove(bullet)
-
+                continue
+            
             # Проверка попадания в игрока
-            if check_collision(bullet, self.ship, -5):
-                if 'shield' in self.powerups.active_effects:
-                    self.enemy_bullets.remove(bullet)
-                    self.particles.spawn_explosion(
-                        bullet.x, bullet.y, 10, 3,
-                        [(50, 150, 255), (255, 255, 255)]
-                    )
-                    continue
-
-                self.ship.health -= 5
+            if not check_collision(bullet, self.ship, -5):
+                continue
+            
+            # Попадание!
+            if 'shield' in self.powerups.active_effects:
                 self.enemy_bullets.remove(bullet)
                 self.particles.spawn_explosion(
                     bullet.x, bullet.y, 10, 3,
-                    [(255, 200, 100), (255, 255, 255)]
+                    [(50, 150, 255), (255, 255, 255)]
                 )
+                continue
 
-                if self.ship.health <= 0:
-                    self.game_over = True
+            self.ship.health -= 5
+            self.enemy_bullets.remove(bullet)
+            self.particles.spawn_explosion(
+                bullet.x, bullet.y, 10, 3,
+                [(255, 200, 100), (255, 255, 255)]
+            )
 
+            if self.ship.health <= 0:
+                self.game_over = True
+                
     def _update_enemies(self):
         """Обновление всех врагов"""
         for enemy in self.enemies[:]:
