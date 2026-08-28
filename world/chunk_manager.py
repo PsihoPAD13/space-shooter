@@ -84,3 +84,41 @@ class ChunkManager:
         
         #print(f"[CHUNK] Всего звёзд в загруженных чанках: {len(result['stars'])}")
         return result
+        
+    def get_objects_in_radius(self, player_x, player_y, radius):
+        """Получает все объекты в радиусе вокруг игрока"""
+        result = {
+            'asteroids': [],
+            'enemy_bases': [],
+            'resources': [],
+        }
+        
+        # Определяем чанки в радиусе
+        chunk_radius = int(radius // CHUNK_SIZE) + 1
+        chunk_x = int(player_x // CHUNK_SIZE)
+        chunk_y = int(player_y // CHUNK_SIZE)
+        
+        for dx in range(-chunk_radius, chunk_radius + 1):
+            for dy in range(-chunk_radius, chunk_radius + 1):
+                cx = chunk_x + dx
+                cy = chunk_y + dy
+                chunk = self.get_chunk(cx, cy)
+                
+                if chunk and chunk.loaded:
+                    # Проверяем расстояние до объектов в чанке
+                    for asteroid in chunk.objects.get('asteroids', []):
+                        dist = math.sqrt((asteroid['x'] - player_x)**2 + (asteroid['y'] - player_y)**2)
+                        if dist < radius:
+                            result['asteroids'].append(asteroid)
+                    
+                    for base in chunk.objects.get('enemy_bases', []):
+                        dist = math.sqrt((base['x'] - player_x)**2 + (base['y'] - player_y)**2)
+                        if dist < radius:
+                            result['enemy_bases'].append(base)
+                    
+                    for resource in chunk.objects.get('resources', []):
+                        dist = math.sqrt((resource['x'] - player_x)**2 + (resource['y'] - player_y)**2)
+                        if dist < radius:
+                            result['resources'].append(resource)
+        
+        return result

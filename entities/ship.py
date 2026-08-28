@@ -24,6 +24,9 @@ class Ship:
         self.max_health = SHIP_MAX_HEALTH
         self.max_speed = SHIP_MAX_SPEED
         self.shield_active = False
+        self.warp_multiplier = 1.0  # Множитель скорости (1 = норма, 5 = варп)
+        self.normal_max_speed = SHIP_MAX_SPEED
+        self.warp_max_speed = SHIP_MAX_SPEED * 5
         
         self.shoot_cooldown = 0
         self.shoot_delay = SHOOT_DELAY
@@ -151,3 +154,15 @@ class Ship:
         # Полоса здоровья
         draw_health_bar(screen, screen_x, screen_y - self.radius - 10,
                        self.health, self.max_health)
+                       
+    def set_warp(self, active):
+        """Включение/выключение варпа"""
+        if active:
+            self.warp_multiplier = 5.0
+            self.max_speed = self.warp_max_speed
+        else:
+            self.warp_multiplier = 1.0
+            self.max_speed = self.normal_max_speed
+
+    def is_warping(self):
+        return self.warp_multiplier > 1.0

@@ -1,0 +1,102 @@
+# entities/asteroid.py
+import pygame
+import math
+import random
+from settings import *
+
+class Asteroid:
+    """Астероид — источник ресурсов"""
+    
+    def __init__(self, x, y, radius=None, health=None):
+        self.x = x
+        self.y = y
+        self.radius = radius or random.randint(20, 60)
+        self.health = health or self.radius // 10 + 2
+        self.max_health = self.health
+        
+        # Физика
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(0.2, 0.8)
+        self.speed_x = math.cos(angle) * speed
+        self.speed_y = math.sin(angle) * speed
+        self.rotation = random.uniform(0, 360)
+        self.rotation_speed = random.uniform(-2, 2)
+        
+        # Визуал
+        self.color = (80 + random.randint(0, 40), 70 + random.randint(0, 30), 50 + random.randint(0, 20))
+        self.vertices = self._generate_vertices()
+        
+        # Ресурсы при разрушении
+        self.resource_amount = random.randint(5, 20)
+    
+    def _generate_vertices(self):
+        """Генерирует неровный многоугольник для астероида"""
+        num_vertices = random.randint(6, 10)
+        vertices = []
+        for i in range(num_vertices):
+            angle = (i / num_vertices) * 2 * math.pi
+            # Неровность
+            variation = 0.7 + random.random() * 0.6
+            r = self.radius * variation
+            vertices.append((r * math.cos(angle), r * math.sin(angle)))
+        return vertices
+    
+    def update(self):
+        """Обновление астероида"""
+        self.x += self.speed_x
+        self.y += self.speed_y
+        self.rotation += self.rotation_speed
+    
+    def draw(self, screen, camera_x=0, camera_y=0):
+        """Рисует астероид"""
+        screen_x = self.x - camera_x
+        screen_y = self.y - camera_y
+        
+        if screen_x < -100 or screen_x > WIDTH + 100 or \
+           screen_y < -100 or screen_y > HEIGHT + 100:
+            return
+        
+        # Повёрнутые вершины
+        rot_rad = math.radians(self.rotation)
+        cos_a = math.cos(rot_rad)
+        sin_a = math.sin(rot_rad)
+        
+        rotated = []
+        for vx, vy in self.vertices:
+            rx = vx * cos_a - vy * sin_a
+            ry = vx * sin_a + vy * cos_a
+            rotated.append((screen_x + rx, screen_y + ry))
+        
+        # Рисуем астероид
+        pygame.draw.polygon(screen, self.color, rotated)
+        pygame.draw.polygon(screen, (50, 50, 50), rotated, 1)
+        
+        # Полоса здоровья (только если больше 1)
+        if self.max_health > 1:
+            bar_width = 30
+            bar_height = 3
+            bar_x = screen_x - bar_width // 2
+            bar_y = screen_y - self.radius - 8
+            health_percent = self.health / self.max_health
+            
+            pygame.draw.rect(screen, (50, 0, 0), (bar_x, bar_y, bar_width, bar_height))
+            pygame.draw.rect(screen, (200, 200, 50), 
+                           (bar_x, bar_y, bar_width * health_percent, bar_height))
+    
+    def take_damage(self, damage=1):
+        """Получение урона"""
+        self.health -= damage
+        if self.health <= 0:
+            return True  # Разрушен
+        return False
+    
+    def destroy(self, particle_system=None):
+        """Взрыв астероида"""
+        if particle_system:
+            particle_system.spawn_explosion(
+                self.x, self.y,
+                count=30,
+                speed=4,
+                colors=[(150, 130, 100), (100, 80, 60), (200, 180, 150)]
+            )
+        return self.resource_amount

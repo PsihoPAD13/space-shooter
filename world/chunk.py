@@ -39,30 +39,50 @@ class Chunk:
         world_x = self.get_world_x()
         world_y = self.get_world_y()
         
-        # Звёзды БОЛЬШЕ НЕ ГЕНЕРИРУЕМ — они теперь фоновые
-        
         # 1. Астероиды
-        if random.random() < 0.4:
-            count = random.randint(3, 10)
+        if random.random() < 0.6:
+            count = random.randint(5, 15)
             for _ in range(count):
                 self.objects['asteroids'].append({
-                    'x': world_x + random.randint(0, CHUNK_SIZE),
-                    'y': world_y + random.randint(0, CHUNK_SIZE),
-                    'radius': random.randint(15, 50),
+                    'x': world_x + random.randint(100, CHUNK_SIZE - 100),
+                    'y': world_y + random.randint(100, CHUNK_SIZE - 100),
+                    'radius': random.randint(20, 60),
                     'health': random.randint(3, 10)
                 })
         
-        # 2. База врагов
-        if random.random() < 0.1:
+        # 2. Базы врагов (увеличим шанс)
+        if random.random() < 0.3:  # 30% шанс на базу в чанке
+            base_x = world_x + random.randint(200, CHUNK_SIZE - 200)
+            base_y = world_y + random.randint(200, CHUNK_SIZE - 200)
+            base_type = random.choice(['standard', 'strong', 'fast', 'swarm'])
             self.objects['enemy_bases'].append({
-                'x': world_x + random.randint(200, CHUNK_SIZE - 200),
-                'y': world_y + random.randint(200, CHUNK_SIZE - 200),
+                'x': base_x,
+                'y': base_y,
+                'base_type': base_type,
                 'health': 100,
-                'spawn_rate': random.randint(30, 60)
+                'max_health': 100,
+                'current_enemies': {
+                    'standard': 8,
+                    'strong': 5,
+                    'fast': 10,
+                    'swarm': 15,
+                }.get(base_type, 8),
+                'max_enemies': {
+                    'standard': 8,
+                    'strong': 5,
+                    'fast': 10,
+                    'swarm': 15,
+                }.get(base_type, 8),
+                'spawn_rate': {
+                    'standard': 60,
+                    'strong': 90,
+                    'fast': 40,
+                    'swarm': 30,
+                }.get(base_type, 60)
             })
         
         # 3. Ресурсы
-        for _ in range(random.randint(2, 6)):
+        for _ in range(random.randint(3, 8)):
             self.objects['resources'].append({
                 'x': world_x + random.randint(0, CHUNK_SIZE),
                 'y': world_y + random.randint(0, CHUNK_SIZE),
@@ -72,7 +92,10 @@ class Chunk:
         
         self.generated = True
         self.modified = True
-        
+        print(f"[CHUNK] Сгенерирован чанк ({self.chunk_x}, {self.chunk_y}): "
+              f"{len(self.objects['asteroids'])} астероидов, "
+              f"{len(self.objects['enemy_bases'])} баз")
+              
     def save(self, world_dir):
         """Сохраняет чанк в файл"""
         if not self.generated:

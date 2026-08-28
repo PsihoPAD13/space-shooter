@@ -46,29 +46,53 @@ def draw_health_bar(screen, x, y, current_health, max_health, width=40, height=5
     health_percent = max(0, current_health / max_health)
     pygame.draw.rect(screen, (0, 255, 0), (bar_x, bar_y, width * health_percent, height))
     
+# utils.py - добавить/заменить
+
 def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_y=0, 
-                               min_distance=300, max_attempts=100):
+                               min_distance=300, max_attempts=100, 
+                               forbidden_angle=60,
+                               enemies=None,
+                               enemy_separation=150,
+                               existing_bases=None,
+                               base_separation=400):
+    """
+    Улучшенный спавн с проверкой на:
+    - направление движения игрока
+    - расстояние до других врагов
+    - расстояние до баз
+    - безопасную зону вокруг игрока
+    """
     import random
     import math
     from settings import CHUNK_SIZE
     
     player_speed = math.sqrt(player_speed_x**2 + player_speed_y**2)
+    forbidden_rad = math.radians(forbidden_angle)
     
-    # Запрещённый сектор (впереди игрока)
     if player_speed > 0.5:
         player_angle = math.atan2(player_speed_y, player_speed_x)
-        forbidden_start = player_angle - math.pi * 0.4
-        forbidden_end = player_angle + math.pi * 0.4
+        forbidden_start = player_angle - forbidden_rad
+        forbidden_end = player_angle + forbidden_rad
     else:
         forbidden_start = None
         forbidden_end = None
     
+    # Список занятых позиций
+    occupied_positions = []
+    if enemies:
+        for enemy in enemies:
+            occupied_positions.append((enemy.x, enemy.y))
+    
+    # Добавляем базы в список занятых
+    if existing_bases:
+        for base in existing_bases:
+            if base.alive:
+                occupied_positions.append((base.x, base.y))
+    
     for attempt in range(max_attempts):
         angle = random.uniform(0, 2 * math.pi)
-        # Увеличиваем минимальную дистанцию для последних врагов
-        distance = random.uniform(min_distance, CHUNK_SIZE * 2)
+        distance = random.uniform(min_distance, min_distance * 3)
         
-        # Проверяем запрещённый сектор
         if forbidden_start is not None:
             angle_norm = angle % (2 * math.pi)
             start = forbidden_start % (2 * math.pi)
@@ -87,13 +111,45 @@ def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_
         
         dx = x - avoid_x
         dy = y - avoid_y
-        if math.sqrt(dx**2 + dy**2) >= min_distance:
-            return x, y
+        if math.sqrt(dx**2 + dy**2) < min_distance:
+            continue
+        
+        # Проверка расстояния до других объектов
+        too_close = False
+        for ox, oy in occupied_positions:
+            edx = x - ox
+            edy = y - oy
+            dist = math.sqrt(edx**2 + edy**2)
+            
+            # Разное расстояние для врагов и баз
+            is_base = False
+            if existing_bases:
+                for base in existing_bases:
+                    if base.alive and abs(base.x - ox) < 1 and abs(base.y - oy) < 1:
+                        is_base = True
+                        break
+            
+            min_dist = base_separation if is_base else enemy_separation
+            
+            if dist < min_dist:
+                too_close = True
+                break
+        
+        if too_close:
+            continue
+        
+        return x, y
     
-    # Если не нашли — спавним на фиксированном расстоянии сбоку
-    # (не телепортируемся)
-    angle = random.choice([math.pi * 0.3, math.pi * 0.7, math.pi * 1.3, math.pi * 1.7])
-    distance = min_distance * 1.2
+    # Если не нашли — спавним сбоку на большем расстоянии
+    side_angles = [
+        math.pi * 0.25,
+        math.pi * 0.75,
+        math.pi * 1.25,
+        math.pi * 1.75,
+    ]
+    angle = random.choice(side_angles)
+    distance = min_distance * 2
     x = avoid_x + math.cos(angle) * distance
     y = avoid_y + math.sin(angle) * distance
     return x, y
+    
