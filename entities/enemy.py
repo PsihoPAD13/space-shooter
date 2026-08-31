@@ -277,3 +277,28 @@ class Enemy:
                 speed=8,
                 colors=[(255, 200, 50), (255, 100, 50), (255, 255, 255)]
             )
+
+    def get_vertices(self):
+        """Возвращает вершины врага для полигональной коллизии"""
+        from entities.enemy_types import ENEMY_TYPES
+        
+        type_data = ENEMY_TYPES.get(self.enemy_type, {})
+        vertices = type_data.get('vertices', [
+            (0, -self.radius), (self.radius, 0), (0, self.radius), (-self.radius, 0)
+        ])
+        
+        # Поворачиваем вершины
+        angle = 0
+        speed = math.sqrt(self.speed_x**2 + self.speed_y**2)
+        if speed > 0.5:
+            angle = math.atan2(self.speed_y, self.speed_x)
+        
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        
+        rotated = []
+        for vx, vy in vertices:
+            rx = self.x + vx * cos_a - vy * sin_a
+            ry = self.y + vx * sin_a + vy * cos_a
+            rotated.append((rx, ry))
+        return rotated

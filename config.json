@@ -16,7 +16,7 @@
     "graphics": {
         "particle_density": 1.5,
         "star_density": 1.0,
-        "show_health_bars": false,
+        "show_health_bars": true,
         "show_minimap": true
     }
 }

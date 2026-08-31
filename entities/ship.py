@@ -166,3 +166,92 @@ class Ship:
 
     def is_warping(self):
         return self.warp_multiplier > 1.0
+        
+    def get_vertices(self):
+        """Возвращает вершины корабля для полигональной коллизии"""
+        angle_rad = math.radians(self.angle)
+        
+        # Нос
+        nose_x = self.x + math.cos(angle_rad) * self.radius
+        nose_y = self.y + math.sin(angle_rad) * self.radius
+        
+        # Левый и правый борта
+        left_angle = angle_rad + math.radians(140)
+        right_angle = angle_rad - math.radians(140)
+        
+        left_x = self.x + math.cos(left_angle) * self.radius
+        left_y = self.y + math.sin(left_angle) * self.radius
+        right_x = self.x + math.cos(right_angle) * self.radius
+        right_y = self.y + math.sin(right_angle) * self.radius
+        
+        return [(nose_x, nose_y), (left_x, left_y), (right_x, right_y)]
+    
+    def get_collision_radius(self):
+        """Возвращает радиус коллизии (с учетом щита)"""
+        if self.shield_active:
+            return self.radius + 10
+        return self.radius
+
+    def circle_collision(obj1, obj2, margin=0):
+        """Проверка столкновения двух круговых объектов"""
+        dx = obj1.x - obj2.x
+        dy = obj1.y - obj2.y
+        dist = math.sqrt(dx**2 + dy**2)
+        return dist < (obj1.radius + obj2.radius + margin)
+
+    def point_in_circle(px, py, circle, margin=0):
+        """Проверка, находится ли точка внутри круга"""
+        dx = px - circle.x
+        dy = py - circle.y
+        dist = math.sqrt(dx**2 + dy**2)
+        return dist < (circle.radius + margin)
+
+    def circle_polygon_collision(circle, vertices, margin=0):
+        """Проверка столкновения круга с многоугольником"""
+        # Проверяем вершины многоугольника
+        for vx, vy in vertices:
+            if point_in_circle(vx, vy, circle, margin):
+                return True
+        
+        # Проверяем ребра многоугольника
+        for i in range(len(vertices)):
+            x1, y1 = vertices[i]
+            x2, y2 = vertices[(i + 1) % len(vertices)]
+            if circle_line_collision(circle, x1, y1, x2, y2, margin):
+                return True
+        
+        return False
+
+    def circle_line_collision(circle, x1, y1, x2, y2, margin=0):
+        """Проверка столкновения круга с линией"""
+        dx = x2 - x1
+        dy = y2 - y1
+        length_sq = dx**2 + dy**2
+        
+        if length_sq == 0:
+            return point_in_circle(x1, y1, circle, margin)
+        
+        t = ((circle.x - x1) * dx + (circle.y - y1) * dy) / length_sq
+        t = max(0, min(1, t))
+        
+        proj_x = x1 + t * dx
+        proj_y = y1 + t * dy
+        
+        return point_in_circle(proj_x, proj_y, circle, margin)
+
+    def get_collision_normal(obj1, obj2):
+        """Возвращает нормаль столкновения между двумя объектами"""
+        dx = obj2.x - obj1.x
+        dy = obj2.y - obj1.y
+        dist = math.sqrt(dx**2 + dy**2)
+        if dist == 0:
+            return (0, -1)
+        return (dx / dist, dy / dist)
+
+    def resolve_collision(obj1, obj2, overlap=0.5):
+        """Разрешает столкновение, раздвигая объекты"""
+        normal = get_collision_normal(obj1, obj2)
+        obj1.x -= normal[0] * overlap
+        obj1.y -= normal[1] * overlap
+        obj2.x += normal[0] * overlap
+        obj2.y += normal[1] * overlap

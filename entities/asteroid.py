@@ -100,3 +100,16 @@ class Asteroid:
                 colors=[(150, 130, 100), (100, 80, 60), (200, 180, 150)]
             )
         return self.resource_amount
+        
+    def get_vertices(self):
+        """Возвращает вершины астероида для полигональной коллизии"""
+        rot_rad = math.radians(self.rotation)
+        cos_a = math.cos(rot_rad)
+        sin_a = math.sin(rot_rad)
+        
+        vertices = []
+        for vx, vy in self.vertices:
+            rx = self.x + vx * cos_a - vy * sin_a
+            ry = self.y + vx * sin_a + vy * cos_a
+            vertices.append((rx, ry))
+        return vertices

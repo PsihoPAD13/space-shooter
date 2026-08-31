@@ -18,6 +18,8 @@ class EnemyBase:
         self.max_health = 100
         self.alive = True
         self.stationary = True
+        self.saved_to_file = True  # <-- ДОБАВИТЬ: флаг, что база сохранена в файле
+        self.removed_from_file = False  # <-- ДОБАВИТЬ: флаг, что база удалена из файла
         
         # Движение
         self.is_moving = False
@@ -172,17 +174,72 @@ class EnemyBase:
                 self.x += (dx / dist) * speed
                 self.y += (dy / dist) * speed
     
-    def take_damage(self, enemies, damage=1):
+    def take_damage(self, enemies, damage=1, chunk_manager=None, save_callback=None):
+        """Получение урона с очисткой врагов при уничтожении"""
         self.health -= damage
         self.hit_flash = 10
         
         if self.health <= 0:
             self.alive = False
             self.cleanup_enemies(enemies)
-            print(f"[BASE] Улей {self.base_type} уничтожен! Осталось врагов в улье: {self.current_enemies}")
+            
+            print(f"[BASE] 🟥 БАЗА УНИЧТОЖЕНА! Координаты: ({int(self.x)}, {int(self.y)})")
+            
+            # ПРЯМОЕ УДАЛЕНИЕ ИЗ ЧАНКА
+            if chunk_manager:
+                chunk_x = int(self.x // CHUNK_SIZE)
+                chunk_y = int(self.y // CHUNK_SIZE)
+                chunk = chunk_manager.get_chunk(chunk_x, chunk_y)
+                
+                print(f"[BASE] Чанк: {chunk.get_chunk_id()}")
+                
+                if chunk and chunk.loaded:
+                    # ПРЯМО ОБНУЛЯЕМ СПИСОК БАЗ В ЧАНКЕ
+                    bases = chunk.objects.get('enemy_bases', [])
+                    print(f"[BASE] Баз в чанке до удаления: {len(bases)}")
+                    
+                    # СОЗДАЁМ НОВЫЙ СПИСОК БЕЗ ЭТОЙ БАЗЫ
+                    new_bases = []
+                    for base_data in bases:
+                        if abs(base_data['x'] - self.x) > 10 or abs(base_data['y'] - self.y) > 10:
+                            new_bases.append(base_data)
+                        else:
+                            print(f"[BASE] ✅ Найдена и удалена база из списка!")
+                    
+                    # ЗАМЕНЯЕМ СПИСОК
+                    chunk.objects['enemy_bases'] = new_bases
+                    chunk.modified = True
+                    
+                    print(f"[BASE] Баз в чанке после удаления: {len(new_bases)}")
+                    
+                    # ПРИНУДИТЕЛЬНО СОХРАНЯЕМ
+                    chunk.save(chunk_manager.world_dir)
+                    
+                    # ПРОВЕРЯЕМ ФАЙЛ
+                    import json
+                    import os
+                    filename = chunk.get_full_path(chunk_manager.world_dir)
+                    if os.path.exists(filename):
+                        with open(filename, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            bases_in_file = data.get('objects', {}).get('enemy_bases', [])
+                            print(f"[BASE] Баз в файле ПОСЛЕ сохранения: {len(bases_in_file)}")
+                            
+                            # ЕСЛИ В ФАЙЛЕ ВСЁ ЕЩЕ ЕСТЬ БАЗЫ - ПРИНУДИТЕЛЬНО ПЕРЕЗАПИСЫВАЕМ
+                            if bases_in_file:
+                                print(f"[BASE] ⚠️ В ФАЙЛЕ ОСТАЛИСЬ БАЗЫ! ПРИНУДИТЕЛЬНАЯ ОЧИСТКА...")
+                                # Обновляем объект чанка
+                                chunk.objects['enemy_bases'] = []
+                                chunk.modified = True
+                                chunk.save(chunk_manager.world_dir)
+                                print(f"[BASE] ✅ Файл принудительно очищен!")
+            
+            if save_callback:
+                save_callback()
+            
             return True
         return False
-    
+        
     def draw(self, screen, camera_x=0, camera_y=0):
         if not self.alive:
             return

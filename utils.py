@@ -19,17 +19,11 @@ def check_collision(obj1, obj2, margin=0):
     return distance(obj1, obj2) < (obj1.radius + obj2.radius + margin)
 
 def wrap_position(obj):
-    """
-    Телепортация через края (для ограниченного мира)
-    В бесконечном мире не нужна, но оставляем для совместимости
-    """
+    """Телепортация через края (для ограниченного мира)"""
     pass
 
 def spawn_position():
-    """
-    Случайная позиция для спавна врагов в бесконечном мире
-    Спавним в радиусе 2 чанков от центра
-    """
+    """Случайная позиция для спавна врагов в бесконечном мире"""
     radius = CHUNK_SIZE * 2
     x = random.randint(-radius, radius)
     y = random.randint(-radius, radius)
@@ -40,13 +34,9 @@ def draw_health_bar(screen, x, y, current_health, max_health, width=40, height=5
     bar_x = x - width // 2
     bar_y = y - 15
     
-    # Фон (красный)
     pygame.draw.rect(screen, (255, 0, 0), (bar_x, bar_y, width, height))
-    # Заполнение (зеленое)
     health_percent = max(0, current_health / max_health)
     pygame.draw.rect(screen, (0, 255, 0), (bar_x, bar_y, width * health_percent, height))
-    
-# utils.py - добавить/заменить
 
 def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_y=0, 
                                min_distance=300, max_attempts=100, 
@@ -62,9 +52,6 @@ def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_
     - расстояние до баз
     - безопасную зону вокруг игрока
     """
-    import random
-    import math
-    from settings import CHUNK_SIZE
     
     player_speed = math.sqrt(player_speed_x**2 + player_speed_y**2)
     forbidden_rad = math.radians(forbidden_angle)
@@ -77,13 +64,11 @@ def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_
         forbidden_start = None
         forbidden_end = None
     
-    # Список занятых позиций
     occupied_positions = []
     if enemies:
         for enemy in enemies:
             occupied_positions.append((enemy.x, enemy.y))
     
-    # Добавляем базы в список занятых
     if existing_bases:
         for base in existing_bases:
             if base.alive:
@@ -114,14 +99,12 @@ def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_
         if math.sqrt(dx**2 + dy**2) < min_distance:
             continue
         
-        # Проверка расстояния до других объектов
         too_close = False
         for ox, oy in occupied_positions:
             edx = x - ox
             edy = y - oy
             dist = math.sqrt(edx**2 + edy**2)
             
-            # Разное расстояние для врагов и баз
             is_base = False
             if existing_bases:
                 for base in existing_bases:
@@ -140,7 +123,6 @@ def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_
         
         return x, y
     
-    # Если не нашли — спавним сбоку на большем расстоянии
     side_angles = [
         math.pi * 0.25,
         math.pi * 0.75,
@@ -152,4 +134,67 @@ def spawn_position_with_safety(avoid_x, avoid_y, player_speed_x=0, player_speed_
     x = avoid_x + math.cos(angle) * distance
     y = avoid_y + math.sin(angle) * distance
     return x, y
+
+# ===== ФУНКЦИИ КОЛЛИЗИЙ =====
+
+def circle_collision(obj1, obj2, margin=0):
+    """Проверка столкновения двух круговых объектов"""
+    dx = obj1.x - obj2.x
+    dy = obj1.y - obj2.y
+    dist = math.sqrt(dx**2 + dy**2)
+    return dist < (obj1.radius + obj2.radius + margin)
+
+def point_in_circle(px, py, circle, margin=0):
+    """Проверка, находится ли точка внутри круга"""
+    dx = px - circle.x
+    dy = py - circle.y
+    dist = math.sqrt(dx**2 + dy**2)
+    return dist < (circle.radius + margin)
+
+def circle_line_collision(circle, x1, y1, x2, y2, margin=0):
+    """Проверка столкновения круга с линией"""
+    dx = x2 - x1
+    dy = y2 - y1
+    length_sq = dx**2 + dy**2
     
+    if length_sq == 0:
+        return point_in_circle(x1, y1, circle, margin)
+    
+    t = ((circle.x - x1) * dx + (circle.y - y1) * dy) / length_sq
+    t = max(0, min(1, t))
+    
+    proj_x = x1 + t * dx
+    proj_y = y1 + t * dy
+    
+    return point_in_circle(proj_x, proj_y, circle, margin)
+
+def circle_polygon_collision(circle, vertices, margin=0):
+    """Проверка столкновения круга с многоугольником"""
+    for vx, vy in vertices:
+        if point_in_circle(vx, vy, circle, margin):
+            return True
+    
+    for i in range(len(vertices)):
+        x1, y1 = vertices[i]
+        x2, y2 = vertices[(i + 1) % len(vertices)]
+        if circle_line_collision(circle, x1, y1, x2, y2, margin):
+            return True
+    
+    return False
+
+def get_collision_normal(obj1, obj2):
+    """Возвращает нормаль столкновения между двумя объектами"""
+    dx = obj2.x - obj1.x
+    dy = obj2.y - obj1.y
+    dist = math.sqrt(dx**2 + dy**2)
+    if dist == 0:
+        return (0, -1)
+    return (dx / dist, dy / dist)
+
+def resolve_collision(obj1, obj2, overlap=0.5):
+    """Разрешает столкновение, раздвигая объекты"""
+    normal = get_collision_normal(obj1, obj2)
+    obj1.x -= normal[0] * overlap
+    obj1.y -= normal[1] * overlap
+    obj2.x += normal[0] * overlap
+    obj2.y += normal[1] * overlap
