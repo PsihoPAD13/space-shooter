@@ -13,21 +13,23 @@ from utils import draw_health_bar, distance, wrap_position
 from entities.enemy_types import ENEMY_TYPES
 
 class Enemy:
-    def __init__(self, x, y, enemy_type='scout'):
-        # Загружаем данные типа
+    def __init__(self, x, y, enemy_type='scout', difficulty_multiplier=1.0):
         type_data = ENEMY_TYPES.get(enemy_type, ENEMY_TYPES['scout'])
         
         self.x = x
         self.y = y
         self.enemy_type = enemy_type
         self.radius = type_data['radius']
-        self.health = type_data['health']
-        self.max_health = type_data['max_health']
-        self.speed = type_data['speed']
+        
+        # Применяем сложность к здоровью
+        self.health = int(type_data['health'] * difficulty_multiplier)
+        self.max_health = int(type_data['max_health'] * difficulty_multiplier)
+        
+        self.speed = type_data['speed'] * (1 + (difficulty_multiplier - 1) * 0.2)
         self.color = type_data['color']
         self.behavior = type_data['behavior']
-        self.shoot_delay = type_data['shoot_delay']
-        self.score_value = type_data['score']
+        self.shoot_delay = int(type_data['shoot_delay'] / difficulty_multiplier)
+        self.score_value = int(type_data['score'] * difficulty_multiplier)
         
         self.shoot_cooldown = random.randint(0, self.shoot_delay)
         

@@ -1,8 +1,9 @@
 # world/chunk_manager.py
+import pygame
 import os
 import random
 import math
-from settings import CHUNK_SIZE, CHUNK_LOAD_RADIUS, DEBUG_MODE
+from settings import CHUNK_SIZE, CHUNK_LOAD_RADIUS, WIDTH, HEIGHT, DEBUG_MODE
 from world.chunk import Chunk
 
 class ChunkManager:
@@ -152,6 +153,7 @@ class ChunkManager:
         return result
     
     def draw_debug_grid(self, screen, camera_x, camera_y, player_x, player_y):
+        """Рисует отладочную сетку чанков"""
         if not DEBUG_MODE:
             return
         
@@ -161,7 +163,7 @@ class ChunkManager:
         if not self.config.get('game.debug_mode', False):
             return
         
-        font = pygame.font.Font(None, 16)
+        font = pygame.font.Font(None, 16)  # <-- Теперь pygame импортирован
         
         start_x = int((camera_x) // CHUNK_SIZE) - 1
         start_y = int((camera_y) // CHUNK_SIZE) - 1
@@ -177,11 +179,11 @@ class ChunkManager:
                 is_generated = key in self.chunks and self.chunks[key].generated
                 
                 if cx == 0 and cy == 0:
-                    color = (0, 255, 0, 80)
+                    color = (0, 255, 0)
                 elif is_generated:
-                    color = (255, 255, 255, 40)
+                    color = (255, 255, 255)
                 else:
-                    color = (100, 100, 100, 30)
+                    color = (100, 100, 100)
                 
                 rect = pygame.Rect(chunk_x, chunk_y, CHUNK_SIZE, CHUNK_SIZE)
                 pygame.draw.rect(screen, color, rect, 1)

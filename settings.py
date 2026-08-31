@@ -131,4 +131,31 @@ BASE_SPAWN_RATE = 60
 BASE_MAX_ENEMIES = 5
 BASE_SPAWN_RANGE = 300
 
+DIFFICULTY_SETTINGS = {
+    'easy': {
+        'enemy_health_multiplier': 0.5,
+        'enemy_speed_multiplier': 0.8,
+        'enemy_spawn_rate': 0.7,
+        'player_damage_multiplier': 0.5,
+        'player_health_multiplier': 1.5,
+        'score_multiplier': 0.8,
+    },
+    'normal': {
+        'enemy_health_multiplier': 1.0,
+        'enemy_speed_multiplier': 1.0,
+        'enemy_spawn_rate': 1.0,
+        'player_damage_multiplier': 1.0,
+        'player_health_multiplier': 1.0,
+        'score_multiplier': 1.0,
+    },
+    'hard': {
+        'enemy_health_multiplier': 1.5,
+        'enemy_speed_multiplier': 1.2,
+        'enemy_spawn_rate': 1.5,
+        'player_damage_multiplier': 1.5,
+        'player_health_multiplier': 0.7,
+        'score_multiplier': 1.3,
+    }
+}
+
 DEBUG_MODE = True

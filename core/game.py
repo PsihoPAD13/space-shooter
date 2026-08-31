@@ -61,6 +61,10 @@ class Game:
         self.minimap = Minimap(self.screen, config)
         self.indicators = DirectionIndicators()
 
+        # ===== СЛОЖНОСТЬ =====
+        self.difficulty = config.get('game.difficulty', 'normal')
+        self._apply_difficulty()
+        
         # ===== МЕНЕДЖЕР ВРАГОВ =====
         self.enemy_manager = EnemyManager()
 
@@ -418,35 +422,28 @@ class Game:
         if DEBUG_MODE:
             print(f"[GAME] Итог: +{loaded_bases} новых баз, пропущено {skipped_bases} уничтоженных")
             
-    def _spawn_enemy(self):
-        """Создаёт врага с учётом направления движения игрока и других врагов"""
-        from utils import spawn_position_with_safety
-
-        enemy_type = self.enemy_manager.get_random_type(self.enemies)
-        min_dist = 600 if enemy_type == 'sniper' else 350
-
-        x, y = spawn_position_with_safety(
-            self.ship.x,
-            self.ship.y,
-            self.ship.speed_x,
-            self.ship.speed_y,
-            min_distance=min_dist,
-            forbidden_angle=60,  # 60 градусов впереди
-            enemies=self.enemies,  # Проверка на других врагов
-            enemy_separation=150
-        )
-
-        enemy = self.enemy_manager.spawn_enemy(x, y, enemy_type)
-        if enemy:
-            self.enemies.append(enemy)
-
+    def spawn_enemy(self, x, y, enemy_type=None, difficulty_multiplier=1.0):
+        """Создаёт врага указанного типа"""
+        if enemy_type is None:
+            enemy_type = self.get_random_type()
+        
+        if enemy_type not in self.enemy_types:
+            print(f"[ENEMY_MANAGER] Ошибка: тип '{enemy_type}' не найден")
+            return None
+        
+        enemy = Enemy(x, y, enemy_type, difficulty_multiplier)
+        return enemy
+        
     def _spawn_enemy_with_base(self, x, y, enemy_type):
         """Создаёт врага для базы с привязкой"""
-        enemy = self.enemy_manager.spawn_enemy(x, y, enemy_type)
+        enemy = self.enemy_manager.spawn_enemy(
+            x, y, enemy_type,
+            self.difficulty_multiplier  # <-- ПЕРЕДАЁМ СЛОЖНОСТЬ
+        )
         if enemy:
             self.enemies.append(enemy)
         return enemy
-
+        
     def _activate_bomb(self):
         """Активирует бомбу"""
         for enemy in self.enemies[:]:
@@ -462,6 +459,32 @@ class Game:
         )
         self.powerups.active_effects['bomb'] = 1
 
+    def _apply_difficulty(self):
+        """Применяет настройки сложности"""
+        if self.difficulty == 'easy':
+            self.difficulty_multiplier = 0.5
+            self.enemy_spawn_modifier = 0.7
+            self.damage_modifier = 0.5
+            self.health_modifier = 1.5
+            print("[DIFFICULTY] Легкая сложность")
+        elif self.difficulty == 'normal':
+            self.difficulty_multiplier = 1.0
+            self.enemy_spawn_modifier = 1.0
+            self.damage_modifier = 1.0
+            self.health_modifier = 1.0
+            print("[DIFFICULTY] Нормальная сложность")
+        elif self.difficulty == 'hard':
+            self.difficulty_multiplier = 1.5
+            self.enemy_spawn_modifier = 1.5
+            self.damage_modifier = 1.5
+            self.health_modifier = 0.7
+            print("[DIFFICULTY] Сложная сложность")
+        else:
+            self.difficulty_multiplier = 1.0
+            self.enemy_spawn_modifier = 1.0
+            self.damage_modifier = 1.0
+            self.health_modifier = 1.0
+            
     def _restart(self):
         """Перезапуск игры"""
         self.game_over = False
@@ -754,7 +777,6 @@ class Game:
         return dist < (asteroid.radius + obj.radius + margin)
 
     def _check_all_collisions(self):
-        """Проверяет все коллизии в игре"""
         from utils import circle_collision, circle_polygon_collision, resolve_collision
         
         # ===== 1. ПУЛИ ИГРОКА VS ВРАГИ =====
@@ -764,17 +786,14 @@ class Game:
                     continue
                 
                 if circle_collision(bullet, enemy):
-                    # Наносим урон врагу
-                    enemy.health -= 1  # <-- УМЕНЬШАЕМ ЗДОРОВЬЕ
+                    enemy.health -= 1
                     self.bullets.remove(bullet)
                     
-                    # Эффект попадания
                     self.particles.spawn_explosion(
                         bullet.x, bullet.y, 5, 2,
                         [(255, 255, 100), (255, 200, 50)]
                     )
                     
-                    # Если враг уничтожен
                     if enemy.health <= 0:
                         enemy.destroy(self.particles)
                         self.powerups.spawn_from_enemy(enemy.x, enemy.y, 0.3)
@@ -793,7 +812,7 @@ class Game:
                         self.enemies, 
                         1, 
                         self.chunk_manager,
-                        self._save_all_chunks  # <-- ДОБАВЛЕНО
+                        self._save_modified_chunks  # <-- ИСПРАВЛЕНО
                     )
                     base.hit_flash = 10
                     self.bullets.remove(bullet)
@@ -809,13 +828,14 @@ class Game:
                             base.x, base.y, 60, 8,
                             [(255, 50, 50), (255, 200, 50), (255, 255, 255)]
                         )
+                        self._save_modified_chunks()  # <-- ДОБАВЛЕНО
                     break
-                    
+        
         # ===== 3. ПУЛИ ИГРОКА VS АСТЕРОИДЫ =====
         for bullet in self.bullets[:]:
             for asteroid in self.asteroids[:]:
                 if circle_polygon_collision(bullet, asteroid.get_vertices()):
-                    asteroid.health -= 1  # <-- УМЕНЬШАЕМ ЗДОРОВЬЕ АСТЕРОИДА
+                    asteroid.health -= 1
                     self.bullets.remove(bullet)
                     
                     self.particles.spawn_explosion(
@@ -838,16 +858,16 @@ class Game:
             
             if circle_polygon_collision(enemy, ship_vertices, -5):
                 if 'shield' in self.powerups.active_effects:
-                    # Щит отражает врага
-                    enemy.health -= 3  # <-- УМЕНЬШАЕМ ЗДОРОВЬЕ
+                    enemy.health -= int(3 * self.damage_modifier)
                     if enemy.health <= 0:
                         enemy.destroy(self.particles)
                         self.score += enemy.score_value
                         self.enemies.remove(enemy)
                     continue
                 
-                self.ship.health -= 10
-                enemy.health = 0  # <-- УБИВАЕМ ВРАГА
+                damage = int(10 * self.damage_modifier)
+                self.ship.health -= damage
+                enemy.health = 0
                 enemy.destroy(self.particles)
                 self.enemies.remove(enemy)
                 
@@ -858,7 +878,7 @@ class Game:
         for asteroid in self.asteroids[:]:
             if circle_polygon_collision(asteroid, ship_vertices, -5):
                 self.ship.health -= 5
-                asteroid.health = 0  # <-- УБИВАЕМ АСТЕРОИД
+                asteroid.health = 0
                 resources = asteroid.destroy(self.particles)
                 self.player_base.resources['scrap'] += resources
                 self.asteroids.remove(asteroid)
@@ -881,7 +901,7 @@ class Game:
                         self.enemies, 
                         5, 
                         self.chunk_manager,
-                        self._save_all_chunks
+                        self._save_modified_chunks  # <-- ИСПРАВЛЕНО
                     )
                     continue
                 
@@ -890,7 +910,7 @@ class Game:
                     self.enemies, 
                     10, 
                     self.chunk_manager,
-                    self._save_all_chunks
+                    self._save_modified_chunks  # <-- ИСПРАВЛЕНО
                 )
                 
                 self.particles.spawn_explosion(
@@ -898,9 +918,12 @@ class Game:
                     [(255, 200, 100), (255, 255, 255)]
                 )
                 
+                if not base.alive:
+                    self._save_modified_chunks()  # <-- ДОБАВЛЕНО
+                
                 if self.ship.health <= 0:
                     self.game_over = True
-                    
+        
         # ===== 7. ВРАЖЕСКИЕ ПУЛИ VS КОРАБЛЬ =====
         for bullet in self.enemy_bullets[:]:
             if bullet.is_dead():
@@ -915,7 +938,8 @@ class Game:
                     self.enemy_bullets.remove(bullet)
                     continue
                 
-                self.ship.health -= 5
+                damage = int(5 * self.damage_modifier)
+                self.ship.health -= damage
                 self.enemy_bullets.remove(bullet)
                 self.particles.spawn_explosion(
                     bullet.x, bullet.y, 10, 3,
@@ -945,7 +969,7 @@ class Game:
                         [(255, 255, 255), (200, 200, 200)]
                     )
                     break
-
+    
     def _debug_check_chunk_file(self, chunk_x, chunk_y):
         """Прямая проверка файла чанка на наличие баз"""
         from settings import DEBUG_MODE
