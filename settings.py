@@ -158,4 +158,17 @@ DIFFICULTY_SETTINGS = {
     }
 }
 
-DEBUG_MODE = True
+# ===== РЕСУРСЫ =====
+RESOURCE_TYPES = ['scrap', 'crystal', 'fuel']
+RESOURCE_COLORS = {
+    'scrap': (150, 150, 150),
+    'crystal': (100, 200, 255),
+    'fuel': (255, 200, 50),
+}
+RESOURCE_ICONS = {
+    'scrap': '🔩',
+    'crystal': '💎',
+    'fuel': '⛽',
+}
+
+DEBUG_MODE = False

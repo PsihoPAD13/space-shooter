@@ -74,6 +74,7 @@ class DirectionIndicators:
         # ===== БАЗЫ ВРАГОВ =====
         if enemy_bases:
             for base in enemy_bases:
+                continue
                 if not base.alive:
                     continue
                 

@@ -20,7 +20,7 @@ class Minimap:
         self.base_color = (100, 200, 255)
     
     def draw(self, screen, player_x, player_y, enemies, powerups=None, 
-             base_x=None, base_y=None, camera=None, enemy_bases=None):
+             base_x=None, base_y=None, camera=None, enemy_bases=None, outposts=None):
         """Рисует мини-карту"""
         if not self.config.get('graphics.show_minimap', True):
             return
@@ -123,6 +123,36 @@ class Minimap:
                              (int(player_map_x), int(player_map_y)), 4)
             pygame.draw.circle(map_surface, self.player_color, 
                              (int(player_map_x), int(player_map_y)), 3)
+        
+        # ===== АВАНПОСТЫ =====
+        if outposts:
+            for outpost in outposts:
+                if not outpost.alive:
+                    continue
+                
+                map_x = (outpost.x - left) * scale_x
+                map_y = (outpost.y - top) * scale_y
+                
+                if 0 < map_x < self.map_width and 0 < map_y < self.map_height:
+                    size = 4
+                    points = [
+                        (map_x, map_y - size),
+                        (map_x + size, map_y),
+                        (map_x, map_y + size),
+                        (map_x - size, map_y)
+                    ]
+                    
+                    outpost_colors = {
+                        'trade': (50, 200, 255),
+                        'mission': (255, 200, 50),
+                        'repair': (50, 255, 100),
+                    }
+                    color = outpost_colors.get(outpost.outpost_type, (100, 100, 255))
+                    
+                    pygame.draw.polygon(map_surface, color, 
+                                      [(int(p[0]), int(p[1])) for p in points])
+                    pygame.draw.polygon(map_surface, (255, 255, 255), 
+                                      [(int(p[0]), int(p[1])) for p in points], 1)
         
         screen.blit(map_surface, (self.map_x, self.map_y))
         

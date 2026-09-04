@@ -37,6 +37,7 @@ class ChunkManager:
         return self.chunks[key]
     
     def update(self, player_x, player_y):
+        
         chunk_x = int(player_x // CHUNK_SIZE)
         chunk_y = int(player_y // CHUNK_SIZE)
         
@@ -50,16 +51,20 @@ class ChunkManager:
                 if not chunk.generated:
                     chunk.generate()
                     chunk.save(self.world_dir)
+                    if DEBUG_MODE:
+                        print(f"[CHUNK_MANAGER] Сгенерирован и сохранён чанк ({cx}, {cy})")
         
-        # При выгрузке чанков — сохраняем только изменённые
+        # Выгружаем чанки, которые вышли из радиуса
         for key in list(self.chunks.keys()):
             if key not in chunks_to_keep:
                 chunk = self.chunks[key]
                 if chunk.modified:
-                    chunk.save(self.world_dir)  # <-- СОХРАНЯЕМ ТОЛЬКО ИЗМЕНЁННЫЕ
+                    if DEBUG_MODE:
+                        print(f"[CHUNK_MANAGER] Сохранение изменённого чанка {key} перед выгрузкой")
+                    chunk.save(self.world_dir)
                 chunk.unload()
                 del self.chunks[key]
-                    
+                
     def save_all(self):
         for chunk in self.chunks.values():
             if chunk.modified:
@@ -227,9 +232,7 @@ class ChunkManager:
             else:
                 if DEBUG_MODE:
                     print(f"[CHUNK] ❌ Чанк {chunk.get_chunk_id()} НЕ сохранён!")
-        
-        print(f"[CHUNK] Сохранено чанков: {saved_count}/{len(self.chunks)}")
-        
+                
     def remove_base_from_chunk(self, base_x, base_y):
         """Удаляет базу из чанка по координатам и сохраняет"""
         from settings import DEBUG_MODE
@@ -247,16 +250,18 @@ class ChunkManager:
         
     def save_modified_chunks(self):
         """Сохраняет только изменённые чанки"""
-        print(f"[CHUNK] 💾 Сохранение изменённых чанков...")
+        from settings import DEBUG_MODE
         
         saved_count = 0
         for chunk in self.chunks.values():
             if chunk.modified and chunk.generated:
                 chunk.save(self.world_dir)
                 saved_count += 1
-                print(f"[CHUNK] 💾 Сохранён чанк {chunk.get_chunk_id()}")
+                if DEBUG_MODE:
+                    print(f"[CHUNK] 💾 Сохранён изменённый чанк {chunk.get_chunk_id()}")
         
-        print(f"[CHUNK] 💾 Сохранено {saved_count} чанков")
+        if DEBUG_MODE and saved_count > 0:
+            print(f"[CHUNK] 💾 Сохранено {saved_count} изменённых чанков")
         return saved_count
         
     def save_chunk_immediately(self, chunk_x, chunk_y):

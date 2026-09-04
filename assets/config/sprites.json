@@ -1,0 +1,153 @@
+{
+  "ships": {
+    "player_base": {
+      "name": "Базовый корабль",
+      "sprite": "ships/player_base.png",
+      "size": [61, 61],
+      "pivot": [30, 30],
+      "slots": {
+        "weapon_1": {"x": 0, "y": -28, "type": "weapon"},
+        "engine": {"x": 0, "y": 28, "type": "engine"},
+        "shield": {"x": 0, "y": 0, "type": "shield"}
+      },
+      "stats": {
+        "hp": 100,
+        "speed": 1.0
+      },
+      "price": 0
+    },
+    "hull_heavy": {
+      "name": "Тяжёлый корпус",
+      "sprite": "ships/hull_heavy.png",
+      "size": [101, 60],
+      "pivot": [50, 30],
+      "slots": {
+        "weapon_1": {"x": -20, "y": -32, "type": "weapon"},
+        "weapon_2": {"x": 20, "y": -32, "type": "weapon"},
+        "weapon_3": {"x": 0, "y": -36, "type": "weapon"},
+        "engine": {"x": 0, "y": 36, "type": "engine"},
+        "shield": {"x": 0, "y": 0, "type": "shield"}
+      },
+      "stats": {
+        "hp": 180,
+        "speed": 0.7
+      },
+      "price": 200
+    },
+    "hull_stealth": {
+      "name": "Стелс",
+      "sprite": "ships/hull_stealth.png",
+      "size": [61, 61],
+      "pivot": [30, 30],
+      "slots": {
+        "weapon_1": {"x": -20, "y": -32, "type": "weapon"},
+        "engine": {"x": 0, "y": 36, "type": "engine"},
+        "shield": {"x": 0, "y": 0, "type": "shield"}
+      },
+      "stats": {
+        "hp": 70,
+        "speed": 1.4
+      },
+      "price": 150
+
+    }
+  },
+
+  "weapons": {
+    "weapon_static": {
+      "name": "Базовая пушка",
+      "sprite": "weapons/weapon_static.png",
+      "size": [16, 16],
+      "pivot": [8, 12],
+      "type": "static",
+      "stats": {
+        "damage": 10,
+        "fire_rate": 0.3
+      },
+      "price": 50
+    },
+    "weapon_plasma": {
+      "name": "Плазменная пушка",
+      "sprite": "weapons/weapon_plasma.png",
+      "size": [20, 20],
+      "pivot": [10, 14],
+      "type": "static",
+      "stats": {
+        "damage": 18,
+        "fire_rate": 0.2
+      },
+      "price": 150
+    },
+    "weapon_turret": {
+      "name": "Турель",
+      "sprite": "weapons/weapon_turret.png",
+      "size": [16, 16],
+      "pivot": [8, 12],
+      "type": "turret",
+      "stats": {
+        "damage": 8,
+        "fire_rate": 0.4
+      },
+      "price": 80
+    }
+  },
+
+  "engines": {
+    "engine_small": {
+      "name": "Малый двигатель",
+      "sprite": "engines/engine_small.png",
+      "size": [16, 16],
+      "pivot": [8, 8],
+      "stats": {
+        "thrust": 1.0,
+        "fuel_consumption": 0.8
+      },
+      "price": 30
+    },
+    "engine_large": {
+      "name": "Большой двигатель",
+      "sprite": "engines/engine_large.png",
+      "size": [20, 20],
+      "pivot": [10, 10],
+      "stats": {
+        "thrust": 1.8,
+        "fuel_consumption": 1.5
+      },
+      "price": 100
+    }
+  },
+
+  "shields": {
+    "shield_basic": {
+      "name": "Базовый щит",
+      "sprite": "shields/shield_basic.png",
+      "size": [24, 24],
+      "pivot": [12, 12],
+      "stats": {
+        "power": 50,
+        "regen": 1
+      },
+      "price": 40
+    },
+    "shield_advanced": {
+      "name": "Улучшенный щит",
+      "sprite": "shields/shield_advanced.png",
+      "size": [28, 28],
+      "pivot": [14, 14],
+      "stats": {
+        "power": 100,
+        "regen": 2
+      },
+      "price": 120
+    }
+  },
+
+  "colors": {
+    "white": [255, 255, 255],
+    "red": [255, 50, 50],
+    "blue": [50, 150, 255],
+    "green": [50, 255, 50],
+    "gold": [255, 215, 0],
+    "purple": [200, 50, 255]
+  }
+}

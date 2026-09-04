@@ -1,5 +1,6 @@
 # world/chunk.py
 import json
+import math
 import os
 import random
 from settings import CHUNK_SIZE, REGION_CHUNKS, DEBUG_MODE  # <-- ДОБАВИТЬ ИМПОРТ
@@ -16,6 +17,7 @@ class Chunk:
             'asteroids': [],
             'enemy_bases': [],
             'resources': [],
+            'outposts': [],  # <-- ДОБАВЛЯЕМ
             'player_base': None,
         }
         self.loaded = False
@@ -49,12 +51,7 @@ class Chunk:
         
     def generate(self):
         if self.generated:
-            if DEBUG_MODE:
-                print(f"[CHUNK] Чанк {self.get_chunk_id()} уже сгенерирован")
             return
-        
-        if DEBUG_MODE:
-            print(f"[CHUNK] Генерация чанка {self.get_chunk_id()}...")
         
         random.seed(self.seed + self.chunk_x * 100000 + self.chunk_y)
         
@@ -71,48 +68,72 @@ class Chunk:
                     'radius': random.randint(20, 60),
                     'health': random.randint(3, 10)
                 })
-            if DEBUG_MODE:
-                print(f"[CHUNK] Сгенерировано {count} астероидов")
         
-        # 2. База врагов (ОДНА на чанк)
+        # 2. БАЗЫ ВРАГОВ
         if self.chunk_x == 0 and self.chunk_y == 0:
             if DEBUG_MODE:
-                print(f"[CHUNK] Центральный чанк (0,0) - без базы")
+                print(f"[CHUNK] Центральный чанк (0,0) - без баз")
         else:
-            if random.random() < 0.4:
-                base_x = world_x + random.randint(300, CHUNK_SIZE - 300)
-                base_y = world_y + random.randint(300, CHUNK_SIZE - 300)
-                base_type = random.choice(['standard', 'strong', 'fast', 'swarm'])
-                self.objects['enemy_bases'].append({
-                    'x': base_x,
-                    'y': base_y,
-                    'base_type': base_type,
-                    'health': 100,
-                    'max_health': 100,
-                    'current_enemies': {
-                        'standard': 8,
-                        'strong': 5,
-                        'fast': 10,
-                        'swarm': 15,
-                    }.get(base_type, 8),
-                    'max_enemies': {
-                        'standard': 8,
-                        'strong': 5,
-                        'fast': 10,
-                        'swarm': 15,
-                    }.get(base_type, 8),
-                    'spawn_rate': {
-                        'standard': 60,
-                        'strong': 90,
-                        'fast': 40,
-                        'swarm': 30,
-                    }.get(base_type, 60)
-                })
+            # Больше баз в чанке для комплексов
+            base_count = random.choices([0, 1, 2, 3, 4, 5], weights=[10, 20, 25, 20, 15, 10])[0]
+            
+            if DEBUG_MODE:
+                print(f"[CHUNK] Чанк {self.get_chunk_id()}: будет {base_count} баз")
+            
+            if base_count > 0:
+                base_positions = []
+                for _ in range(base_count):
+                    attempts = 0
+                    while attempts < 30:
+                        base_x = world_x + random.randint(200, CHUNK_SIZE - 200)
+                        base_y = world_y + random.randint(200, CHUNK_SIZE - 200)
+                        
+                        too_close = False
+                        for bx, by in base_positions:
+                            dist = math.sqrt((base_x - bx)**2 + (base_y - by)**2)
+                            if dist < 350:  # Минимальное расстояние между базами
+                                too_close = True
+                                break
+                        
+                        if not too_close:
+                            base_positions.append((base_x, base_y))
+                            break
+                        attempts += 1
+                
+                # Создаём базы (могут быть разных типов)
+                for bx, by in base_positions:
+                    base_type = random.choice(['standard', 'strong', 'fast', 'swarm'])
+                    self.objects['enemy_bases'].append({
+                        'x': bx,
+                        'y': by,
+                        'base_type': base_type,
+                        'unique_id': f"{int(bx)}_{int(by)}_{base_type}",  # <-- УНИКАЛЬНЫЙ ID
+                        'health': 100,
+                        'max_health': 100,
+                        'current_enemies': {
+                            'standard': 6,
+                            'strong': 4,
+                            'fast': 8,
+                            'swarm': 10,
+                        }.get(base_type, 6),
+                        'max_enemies': {
+                            'standard': 6,
+                            'strong': 4,
+                            'fast': 8,
+                            'swarm': 10,
+                        }.get(base_type, 6),
+                        'spawn_rate': {
+                            'standard': 60,
+                            'strong': 90,
+                            'fast': 40,
+                            'swarm': 30,
+                        }.get(base_type, 60)
+                    })
+                
                 if DEBUG_MODE:
-                    print(f"[CHUNK] База {base_type} в чанке {self.get_chunk_id()} на позиции ({int(base_x)}, {int(base_y)})")
-            else:
-                if DEBUG_MODE:
-                    print(f"[CHUNK] Чанк {self.get_chunk_id()} без базы (шанс не сработал)")
+                    print(f"[CHUNK] Чанк {self.get_chunk_id()}: {len(base_positions)} баз")
+                    for bx, by in base_positions:
+                        print(f"  - База на ({int(bx)}, {int(by)})")
         
         # 3. Ресурсы
         resource_count = random.randint(3, 8)
@@ -123,41 +144,92 @@ class Chunk:
                 'type': 'scrap',
                 'amount': random.randint(5, 20)
             })
-        if DEBUG_MODE:
-            print(f"[CHUNK] Сгенерировано {resource_count} ресурсов")
         
+        # ===== 4. АВАНПОСТЫ (НОВОЕ) =====
+        # Только не в центральном чанке
+        if self.chunk_x != 0 or self.chunk_y != 0:
+            # 15% шанс на аванпост в чанке
+            if random.random() < 0.15:
+                outpost_x = world_x + random.randint(200, CHUNK_SIZE - 200)
+                outpost_y = world_y + random.randint(200, CHUNK_SIZE - 200)
+                outpost_type = random.choice(['trade', 'mission', 'repair'])
+                
+                self.objects['outposts'].append({
+                    'x': outpost_x,
+                    'y': outpost_y,
+                    'outpost_type': outpost_type,
+                    'resources': {
+                        'scrap': random.randint(50, 200),
+                        'crystal': random.randint(10, 50),
+                        'fuel': random.randint(30, 100),
+                    },
+                    'missions': self._generate_missions_for_outpost()
+                })
+                
+                if DEBUG_MODE:
+                    print(f"[CHUNK] Чанк {self.get_chunk_id()} сгенерирован!")
+                    print(f"[CHUNK]    Астероидов: {len(self.objects['asteroids'])}")
+                    print(f"[CHUNK]    Баз: {len(self.objects['enemy_bases'])}")
+                    print(f"[CHUNK]    Аванпостов: {len(self.objects['outposts'])}")
+                            
         self.generated = True
         self.modified = True
-        if DEBUG_MODE:
-            print(f"[CHUNK] Чанк {self.get_chunk_id()} сгенерирован!")
-    
+
+    def _generate_missions_for_outpost(self):
+        """Генерирует миссии для аванпоста"""
+        import random
+        mission_templates = [
+            {
+                'type': 'kill',
+                'name': 'Очистка сектора',
+                'description': 'Уничтожьте 10 врагов в секторе',
+                'target': 10,
+                'reward': {'scrap': 30, 'crystal': 5},
+                'progress': 0,
+                'active': True
+            },
+            {
+                'type': 'collect',
+                'name': 'Сбор ресурсов',
+                'description': 'Соберите 50 единиц скрапа',
+                'target': 50,
+                'reward': {'scrap': 10, 'crystal': 10},
+                'progress': 0,
+                'active': True
+            },
+            {
+                'type': 'destroy_base',
+                'name': 'Уничтожение базы',
+                'description': 'Уничтожьте вражескую базу в секторе',
+                'target': 1,
+                'reward': {'scrap': 50, 'crystal': 20},
+                'progress': 0,
+                'active': True
+            },
+            {
+                'type': 'explore',
+                'name': 'Исследование',
+                'description': 'Посетите 3 новых чанка',
+                'target': 3,
+                'reward': {'scrap': 20, 'crystal': 15},
+                'progress': 0,
+                'active': True
+            },
+        ]
+        count = random.randint(2, 3)
+        return random.sample(mission_templates, min(count, len(mission_templates)))
+        
     def save(self, world_dir):
         """Сохраняет чанк в файл"""
         if not self.generated:
             print(f"[CHUNK] ⚠️ Чанк {self.get_chunk_id()} не сгенерирован")
             return
         
-        # ПРОВЕРЯЕМ БАЗЫ НА ЖИВОСТЬ
+        # Проверяем, что базы действительно удалены из памяти
         bases = self.objects.get('enemy_bases', [])
-        # Удаляем базы с health <= 0 или alive = False
-        filtered_bases = []
-        for base in bases:
-            # Проверяем, есть ли такая база в игре
-            from core.game import Game  # Временный импорт для проверки
-            # Просто проверяем health
-            if base.get('health', 100) > 0:
-                filtered_bases.append(base)
-            else:
-                print(f"[CHUNK] 🧹 Удалена мёртвая база ({int(base['x'])}, {int(base['y'])})")
-        
-        if len(filtered_bases) != len(bases):
-            self.objects['enemy_bases'] = filtered_bases
-            self.modified = True
-            print(f"[CHUNK] 🧹 Очищено {len(bases) - len(filtered_bases)} мёртвых баз")
-        
-        bases_before = len(bases)
-        bases_after = len(filtered_bases)
-        print(f"[CHUNK] 💾 Сохранение чанка {self.get_chunk_id()}, баз: {bases_before} -> {bases_after}")
+        print(f"[CHUNK] 💾 Сохранение чанка {self.get_chunk_id()}, баз в памяти: {len(bases)}")
+        for b in bases:
+            print(f"  - ({int(b['x'])}, {int(b['y'])})")
         
         region_dir = self.get_region_path(world_dir)
         os.makedirs(region_dir, exist_ok=True)
@@ -178,6 +250,7 @@ class Chunk:
             
             self.modified = False
             print(f"[CHUNK] ✅ Чанк сохранён: {filename}")
+            print(f"[CHUNK]    Баз в файле: {len(self.objects.get('enemy_bases', []))}")
             
         except Exception as e:
             print(f"[CHUNK] ❌ ОШИБКА сохранения: {e}")

@@ -20,7 +20,7 @@ class WorldMap:
         
         # Масштаб (зум)
         self.map_scale = 0.8
-        self.min_scale = 0.1
+        self.min_scale = 0.01
         self.max_scale = 5.0
         
         # Цвета
@@ -127,7 +127,7 @@ class WorldMap:
             elif event.key == pygame.K_c:
                 self.waypoint_manager.clear_all()
                 
-    def draw(self, screen, player_x, player_y, enemies, enemy_bases, asteroids, chunk_manager):
+    def draw(self, screen, player_x, player_y, enemies, enemy_bases, asteroids, chunk_manager, outposts=None):
         """Рисует большую карту на весь экран"""
         if not self.visible:
             return
@@ -329,6 +329,45 @@ class WorldMap:
             pygame.draw.circle(screen, (255, 255, 255), (int(sx), int(sy)), 6)
             pygame.draw.circle(screen, self.player_color, (int(sx), int(sy)), 4)
         
+        # ===== АВАНПОСТЫ =====
+        if outposts:
+            for outpost in outposts:
+                if not outpost.alive:
+                    continue
+                
+                if is_visible(outpost.x, outpost.y):
+                    sx, sy = world_to_screen(outpost.x, outpost.y)
+                    size = max(5, min(10, int(outpost.radius * self.map_scale * 0.5)))
+                    
+                    outpost_colors = {
+                        'trade': (50, 200, 255),
+                        'mission': (255, 200, 50),
+                        'repair': (50, 255, 100),
+                    }
+                    color = outpost_colors.get(outpost.outpost_type, (100, 100, 255))
+                    
+                    # Ромб
+                    points = [
+                        (sx, sy - size),
+                        (sx + size, sy),
+                        (sx, sy + size),
+                        (sx - size, sy)
+                    ]
+                    pygame.draw.polygon(screen, color, points)
+                    pygame.draw.polygon(screen, (255, 255, 255), points, 1)
+                    
+                    # Иконка типа (буква)
+                    font = pygame.font.Font(None, 14)
+                    icons = {
+                        'trade': 'T',  # Trade
+                        'mission': 'M', # Mission
+                        'repair': 'R',  # Repair
+                    }
+                    icon = icons.get(outpost.outpost_type, '?')
+                    text = font.render(icon, True, (255, 255, 255))
+                    text_rect = text.get_rect(center=(sx, sy))
+                    screen.blit(text, text_rect)
+        
         # ===== ИНФОРМАЦИОННАЯ ПАНЕЛЬ =====
         panel_y = HEIGHT - 80
         pygame.draw.rect(screen, (20, 20, 40), (20, panel_y, WIDTH - 40, 60))
@@ -341,6 +380,7 @@ class WorldMap:
             f"Bases: {len([b for b in enemy_bases if b.alive])}",
             f"Enemies: {len(enemies)}",
             f"Chunks: {len(chunk_manager.chunks)}",
+            f"Outposts: {len([o for o in outposts if o.alive]) if outposts else 0}",  # <-- ДОБАВЛЕНО
             f"Waypoints: {len(self.waypoint_manager.get_waypoints())}",
             f"Player: ({int(player_x)}, {int(player_y)})",
         ]

@@ -14,6 +14,14 @@ class Asteroid:
         self.health = health or self.radius // 10 + 2
         self.max_health = self.health
         
+        # ===== ТИП РЕСУРСА =====
+        self.resource_type = random.choices(
+            ['scrap', 'crystal', 'fuel'],
+            weights=[60, 20, 20]  # 60% скрап, 20% кристаллы, 20% топливо
+        )[0]
+        
+        self.resource_amount = random.randint(5, 30) if self.resource_type == 'scrap' else random.randint(2, 10)
+        
         # Физика
         angle = random.uniform(0, 2 * math.pi)
         speed = random.uniform(0.2, 0.8)
@@ -99,7 +107,12 @@ class Asteroid:
                 speed=4,
                 colors=[(150, 130, 100), (100, 80, 60), (200, 180, 150)]
             )
-        return self.resource_amount
+            
+        # Возвращаем тип ресурса и количество
+        return {
+            'type': self.resource_type,
+            'amount': self.resource_amount
+        }
         
     def get_vertices(self):
         """Возвращает вершины астероида для полигональной коллизии"""

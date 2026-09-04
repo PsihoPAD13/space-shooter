@@ -21,8 +21,11 @@ from entities.base import EnemyBase
 from entities.player_base import PlayerBase
 from systems.fuel import FuelSystem
 from entities.asteroid import Asteroid
+from entities.outpost import Outpost
 from systems.world_map import WorldMap
 from systems.waypoints import Waypoint, WaypointManager
+from systems.spatial_grid import SpatialGrid
+from systems.sprite_manager import SpriteManager
 
 # Инициализация шрифтов (глобально для HUD)
 pygame.font.init()
@@ -39,6 +42,9 @@ class Game:
         self.game_over = False
         self.paused = False
 
+        # ===== МЕНЕДЖЕР СПРАЙТОВ =====
+        self.sprite_manager = SpriteManager()
+        
         # ===== ЗВЁЗДЫ (ФОН) =====
         self.starfield = BackgroundStars()
 
@@ -52,7 +58,7 @@ class Game:
         self.chunk_manager = ChunkManager()
 
         # ===== КОРАБЛЬ =====
-        self.ship = Ship(0, 0)
+        self.ship = Ship(0, 0, self.sprite_manager) 
         self.camera = Camera(self.ship.x, self.ship.y, WIDTH, HEIGHT)
 
         # ===== ИГРОВЫЕ СИСТЕМЫ =====
@@ -61,6 +67,38 @@ class Game:
         self.minimap = Minimap(self.screen, config)
         self.indicators = DirectionIndicators()
 
+        # ===== РЕСУРСЫ =====
+        self.resources = {
+            'scrap': 0,
+            'crystal': 0,
+            'fuel': 0,
+        }
+        
+        # ===== АВАНПОСТЫ =====
+        self.outposts = []
+        
+        # ===== АНГАР =====
+        self.hangar = None
+        # Сохраняем выбранные детали для ангара (между открытиями)
+        self.hangar_state = {
+            'current_parts': {
+                'ships': 'player_base',
+                'weapons': 'weapon_static',
+                'engines': 'engine_small',
+                'shields': 'shield_basic'
+            },
+            'selected_indices': {
+                'ships': 0,
+                'weapons': 0,
+                'engines': 0,
+                'shields': 0
+            }
+        }
+        
+        # ===== ПРОСТРАНСТВЕННАЯ СЕТКА ДЛЯ КОЛЛИЗИЙ =====
+        from systems.spatial_grid import SpatialGrid
+        self.spatial_grid = SpatialGrid(cell_size=300)
+        
         # ===== СЛОЖНОСТЬ =====
         self.difficulty = config.get('game.difficulty', 'normal')
         self._apply_difficulty()
@@ -135,39 +173,53 @@ class Game:
 
     def handle_events(self):
         """Обработка событий"""
+        # ===== АНГАР =====
+        if self.hangar is not None and self.hangar.active:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self._save_modified_chunks()
+                    self._save_player_chunk()
+                    self.running = False
+                    return "quit"
+                
+                self.hangar.handle_event(event)
+                
+                if not self.hangar.active:
+                    self.hangar = None
+                    self.paused = False
+            
+            return None
+        
+        # ===== ОСТАЛЬНЫЕ СОБЫТИЯ =====
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                # СОХРАНЯЕМ ВСЁ ПРИ ВЫХОДЕ
                 self._save_modified_chunks()
                 self._save_player_chunk()
                 self.running = False
                 return "quit"
-
+            
+            # TAB - переключение карты
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_TAB:
+                self.world_map.toggle()
+                if self.world_map.visible:
+                    self.paused = True
+                else:
+                    self.paused = False
+                continue
+            
             # Передаём события карте
             self.world_map.handle_events(event)
             
-            # TAB - переключение карты (обрабатываем ДО передачи в world_map)
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_TAB:
-                    self.world_map.toggle()
-                    if self.world_map.visible:
-                        self.paused = True
-                    else:
-                        self.paused = False
-                    # Не передаём событие дальше
-                    continue
-                    
-            # Передаём события карте (только если она видна)
+            # Если карта видна - не обрабатываем другие события
             if self.world_map.visible:
-                self.world_map.handle_events(event)
-                # Если карта видна - не обрабатываем другие события
                 continue
-                        
+            
+            # Остальные события
             if event.type == pygame.KEYDOWN:
                 # Чит-коды (только в режиме отладки)
                 if self.config.get('game.debug_mode', False):
                     self._handle_cheats(event)
-
+                
                 # Стандартные клавиши
                 if self.game_over:
                     if event.key == pygame.K_SPACE:
@@ -179,17 +231,17 @@ class Game:
                         return "menu"
                     elif event.key == pygame.K_p:
                         self.paused = not self.paused
-
+                    elif event.key == pygame.K_h:
+                        self._open_hangar()
+            
             # Клик мыши для стрельбы
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    self.mouse_pressed = True
-            if event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1:
-                    self.mouse_pressed = False
-
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self.mouse_pressed = True
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self.mouse_pressed = False
+        
         return None
-
+        
     def _handle_cheats(self, event):
         """Обработка чит-кодов"""
         from settings import DEBUG_MODE
@@ -228,6 +280,13 @@ class Game:
                     chunk.modified = True
                     chunk.save(self.chunk_manager.world_dir)
             print("[CHEAT] ✅ Очистка завершена!")
+        elif event.key == pygame.K_F8:
+            # НАГРУЗОЧНЫЙ ТЕСТ
+            self._run_load_test()
+        elif event.key == pygame.K_F9:
+            self._run_render_test()
+        elif event.key == pygame.K_F10:  # F10
+            self._run_real_test()
             
     # ============================================================
     #  УПРАВЛЕНИЕ
@@ -237,37 +296,64 @@ class Game:
         """Обработка управления с клавиатуры и мыши"""
         keys = self.keys
 
-        # Клавиатура
+        # Проверяем топливо
+        has_fuel = self.fuel_system.has_fuel()
+        
+        # Поворот всегда работает
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
             self.ship.rotate_left()
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             self.ship.rotate_right()
-        if keys[pygame.K_UP] or keys[pygame.K_w]:
-            self.ship.thrust()
+        
+        # Тяга только с топливом
+        if (keys[pygame.K_UP] or keys[pygame.K_w]) and has_fuel:
+            self.ship.thrust(True)
         else:
             self.ship.stop_thrust()
+        
+        # Наводим оружие на мышь (только для турелей)
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        world_mouse_x = mouse_x + self.camera.x
+        world_mouse_y = mouse_y + self.camera.y
+        self.ship.aim_weapons(world_mouse_x, world_mouse_y)
+        
+        # Стрельба (без топлива)
         if keys[pygame.K_SPACE]:
             self.ship.shoot(self.bullets)
-
+        
         # Мышь
         if self.config.get('controls.mouse_control', True):
             mouse_x, mouse_y = pygame.mouse.get_pos()
             world_mouse_x = mouse_x + self.camera.x
             world_mouse_y = mouse_y + self.camera.y
             self.ship.aim_at(world_mouse_x, world_mouse_y)
-
+            
             if self.mouse_pressed:
                 self.ship.shoot(self.bullets)
         
-        # Варп (Shift)
-        if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
+        # Варп (Shift) - только если есть топливо
+        if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) and has_fuel:
             if self.fuel_system.activate_warp():
                 self.ship.set_warp(True)
         else:
             if self.fuel_system.warp_active:
                 self.fuel_system.deactivate_warp()
                 self.ship.set_warp(False)
-                
+
+        # Взаимодействие с аванпостом (E)
+        if keys[pygame.K_e]:
+            self._interact_with_nearby_outpost()
+            
+        # Открыть ангар (H) - только на базе
+        if keys[pygame.K_h]:
+            # Проверяем, рядом ли с базой
+            if self.is_near_base():  # Радиус базы
+                self._open_hangar()
+            else:
+                # Можно добавить сообщение или звук
+                if DEBUG_MODE:
+                    print("[HANGAR] Ангар доступен только на базе!")
+            
     # ============================================================
     #  ИГРОВЫЕ МЕХАНИКИ
     # ============================================================
@@ -291,6 +377,123 @@ class Game:
             base = EnemyBase(x, y, base_type)
             self.enemy_bases.append(base)
             print(f"[BASE] Улей типа {base_type} создан в ({int(x)}, {int(y)}) с {base.max_enemies} врагами")
+            
+    def _init_bases_from_chunks(self):
+        """Создаёт базы из чанков и соединяет их в комплексы"""
+        from entities.base import EnemyBase
+        
+        # Получаем все базы из чанков
+        all_bases = []
+        for chunk in self.chunk_manager.chunks.values():
+            if chunk.loaded:
+                for base_data in chunk.objects.get('enemy_bases', []):
+                    base = EnemyBase(
+                        base_data['x'], 
+                        base_data['y'], 
+                        base_data.get('base_type', 'standard')
+                    )
+                    base.health = base_data.get('health', 100)
+                    base.max_health = base_data.get('max_health', 100)
+                    base.current_enemies = base_data.get('current_enemies', base.max_enemies)
+                    all_bases.append(base)
+        
+        # Соединяем близкие базы в комплексы
+        complexes = []
+        used = set()
+        
+        for i, base1 in enumerate(all_bases):
+            if i in used:
+                continue
+            
+            complex_bases = [base1]
+            used.add(i)
+            
+            # Ищем соседей для соединения
+            for j, base2 in enumerate(all_bases):
+                if j in used:
+                    continue
+                
+                dist = math.sqrt((base1.x - base2.x)**2 + (base1.y - base2.y)**2)
+                if dist < base1.connection_distance * 1.2:
+                    base1.connect_to(base2)
+                    complex_bases.append(base2)
+                    used.add(j)
+            
+            complexes.append(complex_bases)
+        
+        # Добавляем все базы в игру
+        for base in all_bases:
+            self.enemy_bases.append(base)
+        
+        print(f"[BASE] Создано {len(all_bases)} баз, {len(complexes)} комплексов")
+        for i, complex_bases in enumerate(complexes):
+            print(f"  Комплекс {i+1}: {len(complex_bases)} баз")
+            
+    def _connect_bases_into_complexes(self):
+        """Соединяет близкие базы в комплексы (при загрузке)"""
+        from settings import DEBUG_MODE
+        
+        if len(self.enemy_bases) < 2:
+            return
+        
+        # Сбрасываем старые связи
+        for base in self.enemy_bases:
+            base.parent = None
+            base.children = []
+            base.connected = False
+        
+        # Группируем базы по типу
+        bases_by_type = {}
+        for base in self.enemy_bases:
+            if base.base_type not in bases_by_type:
+                bases_by_type[base.base_type] = []
+            bases_by_type[base.base_type].append(base)
+        
+        complexes = 0
+        
+        for base_type, bases in bases_by_type.items():
+            if len(bases) < 2:
+                continue
+            
+            # Сортируем по близости к центру
+            bases.sort(key=lambda b: abs(b.x) + abs(b.y))
+            
+            used = set()
+            for i, base1 in enumerate(bases):
+                if i in used:
+                    continue
+                
+                complex_bases = [base1]
+                used.add(i)
+                
+                for j, base2 in enumerate(bases):
+                    if j in used:
+                        continue
+                    
+                    # Проверяем расстояние до любой базы в комплексе
+                    is_near = False
+                    for comp_base in complex_bases:
+                        dist = math.sqrt((comp_base.x - base2.x)**2 + (comp_base.y - base2.y)**2)
+                        if dist < base1.connection_distance * 1.3:
+                            is_near = True
+                            break
+                    
+                    if is_near and len(complex_bases) < 7:
+                        base1.connect_to(base2)
+                        complex_bases.append(base2)
+                        used.add(j)
+                
+                if len(complex_bases) > 1:
+                    complexes += 1
+                    # Усиливаем главную базу
+                    base1.max_health = 100 + len(complex_bases) * 20
+                    base1.health = base1.max_health
+                    base1.max_enemies = 6 + len(complex_bases) * 2
+                    base1.current_enemies = base1.max_enemies
+                    base1.radius = 45 + len(complex_bases) * 3
+        
+        if DEBUG_MODE:
+            print(f"[BASE] Создано {complexes} комплексов")
             
     def _init_asteroids(self):
         """Создаёт начальные астероиды"""
@@ -367,61 +570,76 @@ class Game:
         self._force_load_chunk_objects()
         
     def _force_load_chunk_objects(self):
-        """Принудительно загружает все объекты из загруженных чанков (7x7)"""
+        """Принудительно загружает все объекты из загруженных чанков"""
         from entities.base import EnemyBase
         from entities.asteroid import Asteroid
+        from entities.outpost import Outpost
         from settings import DEBUG_MODE
         
         if DEBUG_MODE:
             print(f"[GAME] === ПРИНУДИТЕЛЬНАЯ ЗАГРУЗКА ===")
         
-        # Перезагружаем чанки из файлов
+        # Перезагружаем все чанки из файлов
         for key, chunk in list(self.chunk_manager.chunks.items()):
             if chunk.loaded:
                 chunk.load(self.chunk_manager.world_dir)
+                if DEBUG_MODE:
+                    bases = chunk.objects.get('enemy_bases', [])
+                    outposts = chunk.objects.get('outposts', [])
+                    if bases or outposts:
+                        print(f"[GAME] Чанк {key}: {len(bases)} баз, {len(outposts)} аванпостов")
         
-        # НЕ ОЧИЩАЕМ ВСЕ БАЗЫ! Только добавляем новые
-        # self.enemy_bases.clear()  <-- УБИРАЕМ
+        # Очищаем старые объекты
+        self.enemy_bases.clear()
+        self.asteroids.clear()
+        self.outposts.clear()
         
-        loaded_bases = 0
-        skipped_bases = 0
-        
+        # Загружаем базы
         for chunk in self.chunk_manager.chunks.values():
             if not chunk.loaded:
                 continue
             
             for base_data in chunk.objects.get('enemy_bases', []):
-                # Проверяем, есть ли уже такая база в игре
-                exists = False
-                for base in self.enemy_bases:
-                    if abs(base.x - base_data['x']) < 10 and abs(base.y - base_data['y']) < 10:
-                        exists = True
-                        # Проверяем, не уничтожена ли она
-                        if not base.alive and base.removed_from_file:
-                            # Если база уничтожена и удалена из файла - пропускаем
-                            skipped_bases += 1
-                            if DEBUG_MODE:
-                                print(f"[GAME] ⏭️ Пропускаем уничтоженную базу ({int(base.x)}, {int(base.y)})")
-                        break
-                
-                if not exists:
-                    # Новая база - загружаем
-                    base = EnemyBase(
-                        base_data['x'], 
-                        base_data['y'], 
-                        base_data.get('base_type', 'standard')
-                    )
-                    base.health = base_data.get('health', 100)
-                    base.max_health = base_data.get('max_health', 100)
-                    base.current_enemies = base_data.get('current_enemies', base.max_enemies)
-                    self.enemy_bases.append(base)
-                    loaded_bases += 1
-                    if DEBUG_MODE:
-                        print(f"[GAME] ✅ НОВАЯ БАЗА {base.base_type} в ({int(base.x)}, {int(base.y)})")
+                base = EnemyBase(
+                    base_data['x'], 
+                    base_data['y'], 
+                    base_data.get('base_type', 'standard')
+                )
+                base.health = base_data.get('health', 100)
+                base.max_health = base_data.get('max_health', 100)
+                base.current_enemies = base_data.get('current_enemies', base.max_enemies)
+                base.unique_id = base_data.get('unique_id', f"{int(base_data['x'])}_{int(base_data['y'])}_{base.base_type}")
+                self.enemy_bases.append(base)
+            
+            for ast_data in chunk.objects.get('asteroids', []):
+                asteroid = Asteroid(
+                    ast_data['x'], 
+                    ast_data['y'],
+                    ast_data.get('radius'),
+                    ast_data.get('health')
+                )
+                self.asteroids.append(asteroid)
+            
+            # ===== ЗАГРУЖАЕМ АВАНПОСТЫ =====
+            for outpost_data in chunk.objects.get('outposts', []):
+                outpost = Outpost(
+                    outpost_data['x'], 
+                    outpost_data['y'], 
+                    outpost_data.get('outpost_type', 'trade')
+                )
+                outpost.resources = outpost_data.get('resources', {'scrap': 100, 'crystal': 20, 'fuel': 50})
+                outpost.missions = outpost_data.get('missions', [])
+                self.outposts.append(outpost)
+                if DEBUG_MODE:
+                    print(f"[GAME] Загружен аванпост {outpost.outpost_type} в ({int(outpost.x)}, {int(outpost.y)})")
+        
+        # Соединяем базы в комплексы
+        if len(self.enemy_bases) > 1:
+            self._connect_bases_into_complexes()
         
         if DEBUG_MODE:
-            print(f"[GAME] Итог: +{loaded_bases} новых баз, пропущено {skipped_bases} уничтоженных")
-            
+            print(f"[GAME] Итог: {len(self.enemy_bases)} баз, {len(self.asteroids)} астероидов, {len(self.outposts)} аванпостов")
+
     def spawn_enemy(self, x, y, enemy_type=None, difficulty_multiplier=1.0):
         """Создаёт врага указанного типа"""
         if enemy_type is None:
@@ -459,6 +677,49 @@ class Game:
         )
         self.powerups.active_effects['bomb'] = 1
 
+    def _interact_with_nearby_outpost(self):
+        """Взаимодействие с ближайшим аванпостом"""
+        nearest_outpost = None
+        nearest_dist = 200
+        
+        for outpost in self.outposts:
+            if not outpost.alive:
+                continue
+            dist = math.sqrt((outpost.x - self.ship.x)**2 + (outpost.y - self.ship.y)**2)
+            if dist < nearest_dist:
+                nearest_dist = dist
+                nearest_outpost = outpost
+        
+        if nearest_outpost:
+            # Показываем меню в консоли
+            result = nearest_outpost.interact(self.ship, self)
+            
+            # Если это торговля - ждём ввода
+            if result == 'trade':
+                self._handle_trade_input(nearest_outpost)
+    
+    def _handle_trade_input(self, outpost):
+        """Обработка ввода для торговли"""
+        # Временно используем консольный ввод
+        # Позже можно сделать GUI меню
+        try:
+            choice = int(input("Выберите пункт (1-6): "))
+            outpost.trade(self, choice)
+        except ValueError:
+            print("❌ Неверный ввод!")
+
+    def _open_hangar(self):
+        """Открывает ангар"""
+        from ui.hangar import Hangar
+        # Передаём сохранённое состояние
+        self.hangar = Hangar(
+            self.screen, 
+            self.ship, 
+            self.sprite_manager,
+            self.hangar_state  # <-- передаём состояние
+        )
+        self.paused = True
+        
     def _apply_difficulty(self):
         """Применяет настройки сложности"""
         if self.difficulty == 'easy':
@@ -539,6 +800,12 @@ class Game:
         # Обновление звёзд
         self.starfield.update(self.ship.x, self.ship.y, offset_x, offset_y)
 
+        # Варп эффект для звёзд
+        if self.fuel_system.warp_active:
+            self.starfield.set_warp(True)
+        else:
+            self.starfield.set_warp(False)
+            
         # Обновление камеры
         self.camera.update(self.ship.x, self.ship.y)
 
@@ -546,25 +813,54 @@ class Game:
         old_chunk_x = int(self.ship.x // CHUNK_SIZE)
         old_chunk_y = int(self.ship.y // CHUNK_SIZE)
         
-        self.chunk_manager.update(self.ship.x, self.ship.y)
-        
         new_chunk_x = int(self.ship.x // CHUNK_SIZE)
         new_chunk_y = int(self.ship.y // CHUNK_SIZE)
         
-        # ПРИ ПЕРЕХОДЕ В НОВЫЙ ЧАНК - ЗАГРУЖАЕМ БАЗЫ
+        self.chunk_manager.update(self.ship.x, self.ship.y)
+        
+        # При переходе в новый чанк - перезагружаем объекты
         if old_chunk_x != new_chunk_x or old_chunk_y != new_chunk_y:
-            print(f"[GAME] Переход в новый чанк ({new_chunk_x}, {new_chunk_y})")
+            from settings import DEBUG_MODE
+            if DEBUG_MODE:
+                print(f"[GAME] Переход в новый чанк ({new_chunk_x}, {new_chunk_y})")
             self._force_load_chunk_objects()
         
-        # ===== КАЖДЫЕ 5 СЕКУНД ПРОВЕРЯЕМ ЧТО БАЗЫ ЕСТЬ =====
-        if len(self.enemy_bases) < 2 and pygame.time.get_ticks() % 300 == 0:
-            print(f"[GAME] Баз мало ({len(self.enemy_bases)}), загрузка...")
-            self._force_load_chunk_objects()
-
         # Обновление баз врагов
         for base in self.enemy_bases[:]:
             base.update(self.enemies, self.ship.x, self.ship.y, self._spawn_enemy_with_base)
 
+        # ===== КАЖДЫЕ 5 СЕКУНД ПРОВЕРЯЕМ ЧТО БАЗЫ ЕСТЬ =====
+        if len(self.enemy_bases) < 2 and pygame.time.get_ticks() % 300 == 0:
+            print(f"[GAME] Баз мало ({len(self.enemy_bases)}), загрузка...")
+            self._force_load_chunk_objects()
+        
+        # ===== ДИНАМИЧЕСКАЯ ПРОВЕРКА КОМПЛЕКСОВ (каждые 3 секунды) =====
+        if pygame.time.get_ticks() % 180 == 0:
+            # Проверяем, не появились ли новые базы рядом
+            for base in self.enemy_bases:
+                if base.parent is None and base.children:
+                    # У базы уже есть дети - всё ок
+                    continue
+                
+                # Ищем соседей для новых баз
+                for other in self.enemy_bases:
+                    if other == base or other.parent is not None:
+                        continue
+                    
+                    dist = math.sqrt((base.x - other.x)**2 + (base.y - other.y)**2)
+                    if dist < base.connection_distance * 1.3:
+                        # Нашли соседа - соединяем
+                        if base.parent is None:
+                            # Создаём новый комплекс
+                            base.connect_to(other)
+                            base.max_health = 120
+                            base.health = 120
+                            base.max_enemies = 8
+                            base.current_enemies = 8
+                        else:
+                            # Присоединяем к существующему комплексу
+                            base.parent.connect_to(other)
+                            
         # Обновление базы игрока
         self.player_base.update(self.ship, self.particles)
 
@@ -777,12 +1073,40 @@ class Game:
         return dist < (asteroid.radius + obj.radius + margin)
 
     def _check_all_collisions(self):
+        """Проверяет все коллизии с использованием пространственной сетки"""
         from utils import circle_collision, circle_polygon_collision, resolve_collision
+        
+        # ===== ОБНОВЛЯЕМ ПРОСТРАНСТВЕННУЮ СЕТКУ =====
+        self.spatial_grid.clear()
+        
+        # Добавляем все объекты
+        for enemy in self.enemies:
+            if enemy.health > 0:
+                self.spatial_grid.add(enemy)
+        
+        for base in self.enemy_bases:
+            if base.alive:
+                self.spatial_grid.add(base)
+        
+        for asteroid in self.asteroids:
+            self.spatial_grid.add(asteroid)
+        
+        for bullet in self.bullets:
+            self.spatial_grid.add_bullet(bullet)
+        
+        for bullet in self.enemy_bullets:
+            self.spatial_grid.add_bullet(bullet)
         
         # ===== 1. ПУЛИ ИГРОКА VS ВРАГИ =====
         for bullet in self.bullets[:]:
-            for enemy in self.enemies[:]:
-                if enemy.health <= 0:
+            if bullet.is_dead():
+                continue
+            
+            # Находим потенциальные цели
+            potential_targets = self.spatial_grid.get_nearby(bullet)
+            
+            for enemy in potential_targets:
+                if enemy not in self.enemies or enemy.health <= 0:
                     continue
                 
                 if circle_collision(bullet, enemy):
@@ -799,12 +1123,18 @@ class Game:
                         self.powerups.spawn_from_enemy(enemy.x, enemy.y, 0.3)
                         self.score += enemy.score_value
                         self.enemies.remove(enemy)
+                        self.spatial_grid.remove(enemy)
                     break
         
         # ===== 2. ПУЛИ ИГРОКА VS БАЗЫ =====
         for bullet in self.bullets[:]:
-            for base in self.enemy_bases[:]:
-                if not base.alive:
+            if bullet.is_dead():
+                continue
+            
+            potential_targets = self.spatial_grid.get_nearby(bullet)
+            
+            for base in potential_targets:
+                if base not in self.enemy_bases or not base.alive:
                     continue
                 
                 if circle_collision(bullet, base):
@@ -812,7 +1142,7 @@ class Game:
                         self.enemies, 
                         1, 
                         self.chunk_manager,
-                        self._save_modified_chunks  # <-- ИСПРАВЛЕНО
+                        self._save_modified_chunks
                     )
                     base.hit_flash = 10
                     self.bullets.remove(bullet)
@@ -828,12 +1158,21 @@ class Game:
                             base.x, base.y, 60, 8,
                             [(255, 50, 50), (255, 200, 50), (255, 255, 255)]
                         )
-                        self._save_modified_chunks()  # <-- ДОБАВЛЕНО
+                        self._save_modified_chunks()
+                        self.spatial_grid.remove(base)
                     break
         
         # ===== 3. ПУЛИ ИГРОКА VS АСТЕРОИДЫ =====
         for bullet in self.bullets[:]:
-            for asteroid in self.asteroids[:]:
+            if bullet.is_dead():
+                continue
+            
+            potential_targets = self.spatial_grid.get_nearby(bullet)
+            
+            for asteroid in potential_targets:
+                if asteroid not in self.asteroids:
+                    continue
+                
                 if circle_polygon_collision(bullet, asteroid.get_vertices()):
                     asteroid.health -= 1
                     self.bullets.remove(bullet)
@@ -845,122 +1184,61 @@ class Game:
                     
                     if asteroid.health <= 0:
                         resources = asteroid.destroy(self.particles)
-                        self.player_base.resources['scrap'] += resources
+                        # Добавляем ресурсы в инвентарь
+                        if resources and isinstance(resources, dict):
+                            res_type = resources.get('type', 'scrap')
+                            amount = resources.get('amount', 0)
+                            self.resources[res_type] = self.resources.get(res_type, 0) + amount
+                            if DEBUG_MODE:
+                                print(f"[RESOURCE] +{amount} {res_type}")
+                        
                         self.asteroids.remove(asteroid)
+                        self.spatial_grid.remove(asteroid)
                         self.score += 5
                     break
+                    
+        # ===== 4. КОРАБЛЬ VS ВСЕ ОБЪЕКТЫ =====
+        # Проверяем только ближайшие объекты
+        ship_nearby = self.spatial_grid.get_nearby(self.ship)
         
-        # ===== 4. КОРАБЛЬ VS ВРАГИ =====
-        ship_vertices = self.ship.get_vertices()
-        for enemy in self.enemies[:]:
-            if enemy.health <= 0:
-                continue
+        for obj in ship_nearby:
+            # Враги
+            if obj in self.enemies and obj.health > 0:
+                if circle_polygon_collision(obj, self.ship.get_vertices(), -5):
+                    self._handle_ship_enemy_collision(obj)
             
-            if circle_polygon_collision(enemy, ship_vertices, -5):
-                if 'shield' in self.powerups.active_effects:
-                    enemy.health -= int(3 * self.damage_modifier)
-                    if enemy.health <= 0:
-                        enemy.destroy(self.particles)
-                        self.score += enemy.score_value
-                        self.enemies.remove(enemy)
-                    continue
-                
-                damage = int(10 * self.damage_modifier)
-                self.ship.health -= damage
-                enemy.health = 0
-                enemy.destroy(self.particles)
-                self.enemies.remove(enemy)
-                
-                if self.ship.health <= 0:
-                    self.game_over = True
-        
-        # ===== 5. КОРАБЛЬ VS АСТЕРОИДЫ =====
-        for asteroid in self.asteroids[:]:
-            if circle_polygon_collision(asteroid, ship_vertices, -5):
-                self.ship.health -= 5
-                asteroid.health = 0
-                resources = asteroid.destroy(self.particles)
-                self.player_base.resources['scrap'] += resources
-                self.asteroids.remove(asteroid)
-                
-                if self.ship.health <= 0:
-                    self.game_over = True
-        
-        # ===== 6. КОРАБЛЬ VS БАЗЫ =====
-        for base in self.enemy_bases[:]:
-            if not base.alive:
-                continue
+            # Астероиды
+            elif obj in self.asteroids:
+                if circle_polygon_collision(obj, self.ship.get_vertices(), -5):
+                    self._handle_ship_asteroid_collision(obj)
             
-            if circle_collision(self.ship, base, -10):
-                if 'shield' in self.powerups.active_effects:
-                    self.particles.spawn_explosion(
-                        base.x, base.y, 20, 5,
-                        [(50, 150, 255), (255, 255, 255)]
-                    )
-                    base.take_damage(
-                        self.enemies, 
-                        5, 
-                        self.chunk_manager,
-                        self._save_modified_chunks  # <-- ИСПРАВЛЕНО
-                    )
-                    continue
-                
-                self.ship.health -= 20
-                base.take_damage(
-                    self.enemies, 
-                    10, 
-                    self.chunk_manager,
-                    self._save_modified_chunks  # <-- ИСПРАВЛЕНО
-                )
-                
-                self.particles.spawn_explosion(
-                    self.ship.x, self.ship.y, 30, 5,
-                    [(255, 200, 100), (255, 255, 255)]
-                )
-                
-                if not base.alive:
-                    self._save_modified_chunks()  # <-- ДОБАВЛЕНО
-                
-                if self.ship.health <= 0:
-                    self.game_over = True
+            # Базы
+            elif obj in self.enemy_bases and obj.alive:
+                if circle_collision(self.ship, obj, -10):
+                    self._handle_ship_base_collision(obj)
         
-        # ===== 7. ВРАЖЕСКИЕ ПУЛИ VS КОРАБЛЬ =====
+        # ===== 5. ВРАЖЕСКИЕ ПУЛИ VS КОРАБЛЬ =====
         for bullet in self.enemy_bullets[:]:
             if bullet.is_dead():
                 continue
             
-            if circle_polygon_collision(bullet, ship_vertices, -5):
-                if 'shield' in self.powerups.active_effects:
-                    self.particles.spawn_explosion(
-                        bullet.x, bullet.y, 10, 3,
-                        [(50, 150, 255), (255, 255, 255)]
-                    )
-                    self.enemy_bullets.remove(bullet)
-                    continue
-                
-                damage = int(5 * self.damage_modifier)
-                self.ship.health -= damage
-                self.enemy_bullets.remove(bullet)
-                self.particles.spawn_explosion(
-                    bullet.x, bullet.y, 10, 3,
-                    [(255, 200, 100), (255, 255, 255)]
-                )
-                
-                if self.ship.health <= 0:
-                    self.game_over = True
+            # Проверяем только если пуля близко к кораблю
+            if abs(bullet.x - self.ship.x) < 200 and abs(bullet.y - self.ship.y) < 200:
+                if circle_polygon_collision(bullet, self.ship.get_vertices(), -5):
+                    self._handle_enemy_bullet_ship_collision(bullet)
         
-        # ===== 8. ВРАГИ VS ВРАГИ (отталкивание) =====
-        for i, enemy1 in enumerate(self.enemies):
-            for enemy2 in self.enemies[i+1:]:
-                if enemy1.health <= 0 or enemy2.health <= 0:
-                    continue
-                
-                if circle_collision(enemy1, enemy2, -5):
-                    resolve_collision(enemy1, enemy2, 2)
-        
-        # ===== 9. ВРАЖЕСКИЕ ПУЛИ VS ПУЛИ ИГРОКА =====
+        # ===== 6. ВРАЖЕСКИЕ ПУЛИ VS ПУЛИ ИГРОКА =====
+        # Быстрая проверка (пропускаем если далеко)
         for bullet in self.bullets[:]:
-            for enemy_bullet in self.enemy_bullets[:]:
+            if bullet.is_dead():
+                continue
+            
+            potential_targets = self.spatial_grid.get_nearby(bullet)
+            
+            for enemy_bullet in potential_targets:
+                if enemy_bullet not in self.enemy_bullets or enemy_bullet.is_dead():
+                    continue
+                
                 if circle_collision(bullet, enemy_bullet):
                     self.bullets.remove(bullet)
                     self.enemy_bullets.remove(enemy_bullet)
@@ -968,8 +1246,127 @@ class Game:
                         bullet.x, bullet.y, 5, 2,
                         [(255, 255, 255), (200, 200, 200)]
                     )
+                    self.spatial_grid.remove(bullet)
+                    self.spatial_grid.remove(enemy_bullet)
                     break
+        
+        # ===== 7. ВРАГИ VS ВРАГИ (только близкие) =====
+        for enemy in self.enemies:
+            if enemy.health <= 0:
+                continue
+            
+            potential_targets = self.spatial_grid.get_nearby(enemy)
+            
+            for other in potential_targets:
+                if other not in self.enemies or other.health <= 0 or other == enemy:
+                    continue
+                
+                if circle_collision(enemy, other, -5):
+                    resolve_collision(enemy, other, 2)
     
+    def _handle_ship_enemy_collision(self, enemy):
+        """Обработка столкновения корабля с врагом"""
+        if 'shield' in self.powerups.active_effects:
+            enemy.health -= int(3 * self.damage_modifier)
+            if enemy.health <= 0:
+                enemy.destroy(self.particles)
+                self.score += enemy.score_value
+                self.enemies.remove(enemy)
+                self.spatial_grid.remove(enemy)
+            return
+        
+        damage = int(10 * self.damage_modifier)
+        self.ship.health -= damage
+        enemy.health = 0
+        enemy.destroy(self.particles)
+        self.enemies.remove(enemy)
+        self.spatial_grid.remove(enemy)
+        
+        if self.ship.health <= 0:
+            self.game_over = True
+    
+    def _handle_ship_asteroid_collision(self, asteroid):
+        """Обработка столкновения корабля с астероидом"""
+        self.ship.health -= 5
+        asteroid.health = 0
+        
+        # Получаем ресурсы с астероида
+        resources = asteroid.destroy(self.particles)
+        
+        # Добавляем ресурсы в инвентарь
+        if resources and isinstance(resources, dict):
+            res_type = resources.get('type', 'scrap')
+            amount = resources.get('amount', 0)
+            self.resources[res_type] = self.resources.get(res_type, 0) + amount
+            if DEBUG_MODE:
+                print(f"[RESOURCE] +{amount} {res_type} (столкновение)")
+        
+        self.asteroids.remove(asteroid)
+        self.spatial_grid.remove(asteroid)
+        
+        if self.ship.health <= 0:
+            self.game_over = True
+
+    def _handle_ship_base_collision(self, base):
+        """Обработка столкновения корабля с базой"""
+        if 'shield' in self.powerups.active_effects:
+            self.particles.spawn_explosion(
+                base.x, base.y, 20, 5,
+                [(50, 150, 255), (255, 255, 255)]
+            )
+            base.take_damage(
+                self.enemies, 
+                5, 
+                self.chunk_manager,
+                self._save_modified_chunks
+            )
+            if not base.alive:
+                self.spatial_grid.remove(base)
+            return
+        
+        self.ship.health -= 20
+        base.take_damage(
+            self.enemies, 
+            10, 
+            self.chunk_manager,
+            self._save_modified_chunks
+        )
+        
+        self.particles.spawn_explosion(
+            self.ship.x, self.ship.y, 30, 5,
+            [(255, 200, 100), (255, 255, 255)]
+        )
+        
+        if not base.alive:
+            self.spatial_grid.remove(base)
+            self._save_modified_chunks()
+        
+        if self.ship.health <= 0:
+            self.game_over = True
+    
+    def _handle_enemy_bullet_ship_collision(self, bullet):
+        """Обработка столкновения вражеской пули с кораблём"""
+        if 'shield' in self.powerups.active_effects:
+            self.particles.spawn_explosion(
+                bullet.x, bullet.y, 10, 3,
+                [(50, 150, 255), (255, 255, 255)]
+            )
+            self.enemy_bullets.remove(bullet)
+            self.spatial_grid.remove(bullet)
+            return
+        
+        damage = int(5 * self.damage_modifier)
+        self.ship.health -= damage
+        self.enemy_bullets.remove(bullet)
+        self.spatial_grid.remove(bullet)
+        self.particles.spawn_explosion(
+            bullet.x, bullet.y, 10, 3,
+            [(255, 200, 100), (255, 255, 255)]
+        )
+        
+        if self.ship.health <= 0:
+            self.game_over = True
+            
     def _debug_check_chunk_file(self, chunk_x, chunk_y):
         """Прямая проверка файла чанка на наличие баз"""
         from settings import DEBUG_MODE
@@ -1020,15 +1417,12 @@ class Game:
         """Сохраняет только изменённые чанки"""
         from settings import DEBUG_MODE
         
-        if DEBUG_MODE:
-            print(f"[SAVE] Сохранение изменённых чанков...")
-        
         saved = self.chunk_manager.save_modified_chunks()
         
-        if DEBUG_MODE:
-            print(f"[SAVE] Сохранено {saved} чанков")
+        if DEBUG_MODE and saved > 0:
+            print(f"[SAVE] Сохранено {saved} изменённых чанков")
         return saved
-
+        
     def _save_player_chunk(self):
         """Сохраняет чанк в котором находится игрок"""
         from settings import DEBUG_MODE
@@ -1040,6 +1434,481 @@ class Game:
             print(f"[SAVE] Сохранение чанка игрока ({chunk_x}, {chunk_y})...")
         
         self.chunk_manager.save_chunk_immediately(chunk_x, chunk_y)
+
+    def _run_load_test(self):
+        """Нагрузочный тест: спавн большого количества объектов"""
+        import time
+        
+        print("\n" + "="*50)
+        print("🧪 НАГРУЗОЧНЫЙ ТЕСТ")
+        print("="*50)
+        
+        # Спавн врагов
+        enemy_counts = [10, 20, 50, 100, 200, 500]
+        
+        for count in enemy_counts:
+            print(f"\n📊 Тест: {count} врагов")
+            
+            # Спавним врагов
+            start_time = time.time()
+            for i in range(count):
+                x = self.ship.x + random.randint(-2000, 2000)
+                y = self.ship.y + random.randint(-2000, 2000)
+                enemy_type = random.choice(['scout', 'tank', 'sniper', 'kamikaze', 'swarmer'])
+                enemy = self.enemy_manager.spawn_enemy(x, y, enemy_type, self.difficulty_multiplier)
+                if enemy:
+                    self.enemies.append(enemy)
+            
+            spawn_time = time.time() - start_time
+            print(f"  ⏱️ Спавн: {spawn_time:.3f} сек")
+            
+            # Проверяем FPS
+            fps_start = time.time()
+            frame_count = 0
+            target_frames = 60
+            
+            # Делаем несколько кадров для замера
+            for _ in range(target_frames):
+                # Симулируем обновление (без рендера)
+                for enemy in self.enemies[:50]:  # Обновляем только часть для скорости
+                    enemy.update(self.ship.x, self.ship.y)
+                frame_count += 1
+            
+            fps_time = time.time() - fps_start
+            fps = frame_count / fps_time if fps_time > 0 else 0
+            print(f"  🎮 FPS: {fps:.1f}")
+            
+            # Очищаем врагов
+            self.enemies.clear()
+            print(f"  🧹 Очищено")
+        
+        # Тест с базами
+        print(f"\n📊 Тест: базы")
+        base_counts = [5, 10, 20, 50]
+        
+        for count in base_counts:
+            print(f"\n📊 Тест: {count} баз")
+            
+            # Спавним базы
+            start_time = time.time()
+            for i in range(count):
+                x = self.ship.x + random.randint(-3000, 3000)
+                y = self.ship.y + random.randint(-3000, 3000)
+                base_type = random.choice(['standard', 'strong', 'fast', 'swarm'])
+                base = EnemyBase(x, y, base_type)
+                self.enemy_bases.append(base)
+            
+            spawn_time = time.time() - start_time
+            print(f"  ⏱️ Спавн: {spawn_time:.3f} сек")
+            
+            # Проверяем FPS
+            fps_start = time.time()
+            frame_count = 0
+            target_frames = 60
+            
+            for _ in range(target_frames):
+                # Симулируем обновление
+                for base in self.enemy_bases[:50]:
+                    base.update(self.enemies, self.ship.x, self.ship.y, self._spawn_enemy_with_base)
+                frame_count += 1
+            
+            fps_time = time.time() - fps_start
+            fps = frame_count / fps_time if fps_time > 0 else 0
+            print(f"  🎮 FPS: {fps:.1f}")
+            
+            # Очищаем базы
+            self.enemy_bases.clear()
+            print(f"  🧹 Очищено")
+        
+        # Тест с астероидами
+        print(f"\n📊 Тест: астероиды")
+        asteroid_counts = [50, 100, 200, 500, 1000]
+        
+        for count in asteroid_counts:
+            print(f"\n📊 Тест: {count} астероидов")
+            
+            # Спавним астероиды
+            start_time = time.time()
+            for i in range(count):
+                x = self.ship.x + random.randint(-3000, 3000)
+                y = self.ship.y + random.randint(-3000, 3000)
+                asteroid = Asteroid(x, y)
+                self.asteroids.append(asteroid)
+            
+            spawn_time = time.time() - start_time
+            print(f"  ⏱️ Спавн: {spawn_time:.3f} сек")
+            
+            # Проверяем FPS
+            fps_start = time.time()
+            frame_count = 0
+            target_frames = 60
+            
+            for _ in range(target_frames):
+                # Симулируем обновление
+                for asteroid in self.asteroids[:50]:
+                    asteroid.update()
+                frame_count += 1
+            
+            fps_time = time.time() - fps_start
+            fps = frame_count / fps_time if fps_time > 0 else 0
+            print(f"  🎮 FPS: {fps:.1f}")
+            
+            # Очищаем астероиды
+            self.asteroids.clear()
+            print(f"  🧹 Очищено")
+        
+        # Итог
+        print("\n" + "="*50)
+        print("✅ НАГРУЗОЧНЫЙ ТЕСТ ЗАВЕРШЁН")
+        print("="*50 + "\n")
+
+    def _run_render_test(self):
+        """Тест производительности с отрисовкой"""
+        import time
+        
+        print("\n" + "="*60)
+        print("🎨 ТЕСТ ПРОИЗВОДИТЕЛЬНОСТИ С ОТРИСОВКОЙ")
+        print("="*60)
+        
+        # Сохраняем текущие объекты
+        saved_enemies = self.enemies[:]
+        saved_bases = self.enemy_bases[:]
+        saved_asteroids = self.asteroids[:]
+        
+        test_results = []
+        
+        # ===== ТЕСТ 1: ВРАГИ =====
+        print("\n📊 ТЕСТ 1: ВРАГИ (с отрисовкой)")
+        enemy_counts = [10, 20, 50, 100, 200]
+        
+        for count in enemy_counts:
+            self.enemies.clear()
+            
+            # Спавним врагов
+            for i in range(count):
+                x = self.ship.x + random.randint(-2000, 2000)
+                y = self.ship.y + random.randint(-2000, 2000)
+                enemy_type = random.choice(['scout', 'tank', 'sniper', 'kamikaze', 'swarmer'])
+                enemy = self.enemy_manager.spawn_enemy(x, y, enemy_type, self.difficulty_multiplier)
+                if enemy:
+                    self.enemies.append(enemy)
+            
+            # Замеряем FPS с отрисовкой
+            fps_start = time.time()
+            frame_count = 0
+            target_frames = 120  # Больше кадров для точности
+            
+            for _ in range(target_frames):
+                # ОБНОВЛЕНИЕ
+                for enemy in self.enemies:
+                    enemy.update(self.ship.x, self.ship.y)
+                
+                # ОТРИСОВКА (имитация)
+                for enemy in self.enemies:
+                    enemy.draw(self.screen, self.camera.x, self.camera.y, self.ship.x, self.ship.y)
+                
+                frame_count += 1
+            
+            fps_time = time.time() - fps_start
+            fps = frame_count / fps_time if fps_time > 0 else 0
+            
+            print(f"  {count} врагов: {fps:.1f} FPS")
+            test_results.append(("Враги", count, fps))
+            
+            self.enemies.clear()
+        
+        # ===== ТЕСТ 2: БАЗЫ =====
+        print("\n📊 ТЕСТ 2: БАЗЫ (с отрисовкой)")
+        base_counts = [5, 10, 20, 30, 50, 100, 150]
+        
+        for count in base_counts:
+            self.enemy_bases.clear()
+            
+            # Спавним базы
+            for i in range(count):
+                x = self.ship.x + random.randint(-3000, 3000)
+                y = self.ship.y + random.randint(-3000, 3000)
+                base_type = random.choice(['standard', 'strong', 'fast', 'swarm'])
+                base = EnemyBase(x, y, base_type)
+                self.enemy_bases.append(base)
+            
+            # Замеряем FPS с отрисовкой
+            fps_start = time.time()
+            frame_count = 0
+            target_frames = 120
+            
+            for _ in range(target_frames):
+                # ОБНОВЛЕНИЕ
+                for base in self.enemy_bases:
+                    base.update(self.enemies, self.ship.x, self.ship.y, self._spawn_enemy_with_base)
+                
+                # ОТРИСОВКА
+                for base in self.enemy_bases:
+                    base.draw(self.screen, self.camera.x, self.camera.y)
+                
+                frame_count += 1
+            
+            fps_time = time.time() - fps_start
+            fps = frame_count / fps_time if fps_time > 0 else 0
+            
+            print(f"  {count} баз: {fps:.1f} FPS")
+            test_results.append(("Базы", count, fps))
+            
+            self.enemy_bases.clear()
+        
+        # ===== ТЕСТ 3: АСТЕРОИДЫ =====
+        print("\n📊 ТЕСТ 3: АСТЕРОИДЫ (с отрисовкой)")
+        asteroid_counts = [10, 20, 50, 100, 200]
+        
+        for count in asteroid_counts:
+            self.asteroids.clear()
+            
+            # Спавним астероиды
+            for i in range(count):
+                x = self.ship.x + random.randint(-3000, 3000)
+                y = self.ship.y + random.randint(-3000, 3000)
+                asteroid = Asteroid(x, y)
+                self.asteroids.append(asteroid)
+            
+            # Замеряем FPS с отрисовкой
+            fps_start = time.time()
+            frame_count = 0
+            target_frames = 120
+            
+            for _ in range(target_frames):
+                # ОБНОВЛЕНИЕ
+                for asteroid in self.asteroids:
+                    asteroid.update()
+                
+                # ОТРИСОВКА
+                for asteroid in self.asteroids:
+                    asteroid.draw(self.screen, self.camera.x, self.camera.y)
+                
+                frame_count += 1
+            
+            fps_time = time.time() - fps_start
+            fps = frame_count / fps_time if fps_time > 0 else 0
+            
+            print(f"  {count} астероидов: {fps:.1f} FPS")
+            test_results.append(("Астероиды", count, fps))
+            
+            self.asteroids.clear()
+        
+        # ===== ТЕСТ 4: СМЕШАННАЯ НАГРУЗКА =====
+        print("\n📊 ТЕСТ 4: СМЕШАННАЯ НАГРУЗКА")
+        scenarios = [
+            ("10 врагов + 5 баз + 20 астероидов", 10, 5, 20),
+            ("20 врагов + 10 баз + 50 астероидов", 20, 10, 50),
+            ("50 врагов + 20 баз + 100 астероидов", 50, 20, 100),
+            ("100 врагов + 30 баз + 200 астероидов", 100, 30, 200),
+        ]
+        
+        for name, enemy_count, base_count, asteroid_count in scenarios:
+            self.enemies.clear()
+            self.enemy_bases.clear()
+            self.asteroids.clear()
+            
+            # Спавним врагов
+            for i in range(enemy_count):
+                x = self.ship.x + random.randint(-2000, 2000)
+                y = self.ship.y + random.randint(-2000, 2000)
+                enemy_type = random.choice(['scout', 'tank', 'sniper', 'kamikaze', 'swarmer'])
+                enemy = self.enemy_manager.spawn_enemy(x, y, enemy_type, self.difficulty_multiplier)
+                if enemy:
+                    self.enemies.append(enemy)
+            
+            # Спавним базы
+            for i in range(base_count):
+                x = self.ship.x + random.randint(-3000, 3000)
+                y = self.ship.y + random.randint(-3000, 3000)
+                base_type = random.choice(['standard', 'strong', 'fast', 'swarm'])
+                base = EnemyBase(x, y, base_type)
+                self.enemy_bases.append(base)
+            
+            # Спавним астероиды
+            for i in range(asteroid_count):
+                x = self.ship.x + random.randint(-3000, 3000)
+                y = self.ship.y + random.randint(-3000, 3000)
+                asteroid = Asteroid(x, y)
+                self.asteroids.append(asteroid)
+            
+            # Замеряем FPS
+            fps_start = time.time()
+            frame_count = 0
+            target_frames = 120
+            
+            for _ in range(target_frames):
+                # Обновление
+                for enemy in self.enemies:
+                    enemy.update(self.ship.x, self.ship.y)
+                for base in self.enemy_bases:
+                    base.update(self.enemies, self.ship.x, self.ship.y, self._spawn_enemy_with_base)
+                for asteroid in self.asteroids:
+                    asteroid.update()
+                
+                # Отрисовка
+                for enemy in self.enemies:
+                    enemy.draw(self.screen, self.camera.x, self.camera.y, self.ship.x, self.ship.y)
+                for base in self.enemy_bases:
+                    base.draw(self.screen, self.camera.x, self.camera.y)
+                for asteroid in self.asteroids:
+                    asteroid.draw(self.screen, self.camera.x, self.camera.y)
+                
+                frame_count += 1
+            
+            fps_time = time.time() - fps_start
+            fps = frame_count / fps_time if fps_time > 0 else 0
+            
+            print(f"  {name}: {fps:.1f} FPS")
+            test_results.append(("Смешанная", 0, fps))
+            
+            self.enemies.clear()
+            self.enemy_bases.clear()
+            self.asteroids.clear()
+        
+        # ===== ИТОГ =====
+        print("\n" + "="*60)
+        print("📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ")
+        print("="*60)
+        print(f"{'Тип':<15} {'Количество':<12} {'FPS':<10}")
+        print("-"*40)
+        for test_type, count, fps in test_results:
+            print(f"{test_type:<15} {count:<12} {fps:.1f}")
+        print("="*60 + "\n")
+        
+        # Восстанавливаем объекты
+        self.enemies = saved_enemies
+        self.enemy_bases = saved_bases
+        self.asteroids = saved_asteroids
+
+    def _run_real_test(self):
+        """Тест с реальной нагрузкой (коллизии + все системы)"""
+        import time
+        
+        print("\n" + "="*60)
+        print("🎯 РЕАЛЬНЫЙ ТЕСТ ПРОИЗВОДИТЕЛЬНОСТИ")
+        print("="*60)
+        
+        # Сохраняем текущие объекты
+        saved_enemies = self.enemies[:]
+        saved_bases = self.enemy_bases[:]
+        saved_asteroids = self.asteroids[:]
+        
+        # Создаём тестовую сцену
+        self.enemies.clear()
+        self.enemy_bases.clear()
+        self.asteroids.clear()
+        
+        # Спавним 150 баз
+        print("\n📊 Создание 150 баз...")
+        for i in range(150):
+            x = self.ship.x + random.randint(-5000, 5000)
+            y = self.ship.y + random.randint(-5000, 5000)
+            base_type = random.choice(['standard', 'strong', 'fast', 'swarm'])
+            base = EnemyBase(x, y, base_type)
+            self.enemy_bases.append(base)
+        
+        # Спавним немного врагов
+        print("📊 Создание 50 врагов...")
+        for i in range(50):
+            x = self.ship.x + random.randint(-2000, 2000)
+            y = self.ship.y + random.randint(-2000, 2000)
+            enemy_type = random.choice(['scout', 'tank', 'sniper', 'kamikaze', 'swarmer'])
+            enemy = self.enemy_manager.spawn_enemy(x, y, enemy_type, self.difficulty_multiplier)
+            if enemy:
+                self.enemies.append(enemy)
+        
+        print("📊 Запуск теста на 5 секунд...")
+        
+        # Замеряем реальный FPS
+        fps_start = time.time()
+        frame_count = 0
+        test_duration = 60.0  # 5 секунд
+        
+        while time.time() - fps_start < test_duration:
+            # ПОЛНОЕ ОБНОВЛЕНИЕ
+            self._update_without_checks()
+            
+            # ПОЛНАЯ ОТРИСОВКА
+            self._draw_without_flip()
+            
+            frame_count += 1
+            
+            # Ограничиваем чтобы не уйти в бесконечный цикл
+            if frame_count > 100000:
+                break
+        
+        fps_time = time.time() - fps_start
+        real_fps = frame_count / fps_time if fps_time > 0 else 0
+        
+        print(f"\n📊 РЕЗУЛЬТАТ:")
+        print(f"  ⏱️ Время: {fps_time:.2f} сек")
+        print(f"  🎮 Кадров: {frame_count}")
+        print(f"  🎮 Реальный FPS: {real_fps:.1f}")
+        print(f"  🏠 Баз: {len(self.enemy_bases)}")
+        print(f"  👾 Врагов: {len(self.enemies)}")
+        
+        # Восстанавливаем объекты
+        self.enemies = saved_enemies
+        self.enemy_bases = saved_bases
+        self.asteroids = saved_asteroids
+        
+        print("="*60 + "\n")
+    
+    def _update_without_checks(self):
+        """Обновление без проверок для теста"""
+        # Обновляем врагов
+        for enemy in self.enemies:
+            enemy.update(self.ship.x, self.ship.y)
+        
+        # Обновляем базы
+        for base in self.enemy_bases:
+            base.update(self.enemies, self.ship.x, self.ship.y, self._spawn_enemy_with_base)
+        
+        # Обновляем астероиды
+        for asteroid in self.asteroids:
+            asteroid.update()
+        
+        # Обновляем пули
+        for bullet in self.bullets:
+            bullet.update()
+        
+        # Обновляем частицы
+        self.particles.update()
+    
+    def _draw_without_flip(self):
+        """Отрисовка без flip для теста"""
+        camera_x = self.camera.x
+        camera_y = self.camera.y
+        
+        self.screen.fill(BLACK)
+        
+        # Рисуем все объекты
+        for base in self.enemy_bases:
+            base.draw(self.screen, camera_x, camera_y)
+        
+        for enemy in self.enemies:
+            enemy.draw(self.screen, camera_x, camera_y, self.ship.x, self.ship.y)
+        
+        for asteroid in self.asteroids:
+            asteroid.draw(self.screen, camera_x, camera_y)
+        
+        for bullet in self.bullets:
+            bullet.draw(self.screen, camera_x, camera_y)
+        
+        for bullet in self.enemy_bullets:
+            bullet.draw(self.screen, camera_x, camera_y)
+        
+        self.particles.draw(self.screen, camera_x, camera_y)
+        self.ship.draw(self.screen, camera_x, camera_y, self.particles)
+        
+    def is_near_base(self):
+        """Проверяет, находится ли корабль рядом с базой"""
+        dist = math.sqrt(
+            (self.ship.x - self.player_base.x)**2 + 
+            (self.ship.y - self.player_base.y)**2
+        )
+        return dist < 300
         
     # ============================================================
     #  ОТРИСОВКА
@@ -1104,7 +1973,8 @@ class Game:
             self.player_base.x,  # <-- БАЗА ИГРОКА
             self.player_base.y,
             self.camera,
-            self.enemy_bases
+            self.enemy_bases,
+            self.outposts
         )
 
         # Маркеры на игровом поле
@@ -1118,8 +1988,11 @@ class Game:
         
         # Указатели направления
         self.indicators.draw(self.screen)
-
-        # HP базы под прицелом
+        
+        # Аванпосты
+        for outpost in self.outposts:
+            outpost.draw(self.screen, camera_x, camera_y)
+                # HP базы под прицелом
         self._draw_base_hp()
 
         # HUD
@@ -1137,9 +2010,38 @@ class Game:
             self.enemies,
             self.enemy_bases,
             self.asteroids,
-            self.chunk_manager
+            self.chunk_manager,
+            self.outposts
         )
         
+        # Ангар (поверх всего)
+        if self.hangar is not None and self.hangar.active:
+            self.hangar.draw()
+
+        # ===== ЭФФЕКТ ВАРПА (свечение по краям) =====
+        if self.fuel_system.warp_active:
+            # Создаём свечение по краям экрана
+            vignette = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            
+            # Центр прозрачный, края светятся
+            for i in range(100, 0, -5):
+                alpha = int(10 * (1 - i / 100))
+                radius = i * 3
+                color = (100, 200, 255, alpha)
+                pygame.draw.circle(vignette, color, (WIDTH//2, HEIGHT//2), radius)
+            
+            self.screen.blit(vignette, (0, 0))
+            
+            # Эффект "разгона" — линии по краям
+            if pygame.time.get_ticks() % 100 < 50:
+                speed_lines = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                for i in range(0, WIDTH, 20):
+                    alpha = random.randint(20, 60)
+                    y_start = random.randint(0, HEIGHT)
+                    pygame.draw.line(speed_lines, (100, 200, 255, alpha), 
+                                   (i, y_start), (i, y_start - 50), 1)
+                self.screen.blit(speed_lines, (0, 0))
+                
         pygame.display.flip()
         self.clock.tick(FPS)
 
@@ -1193,7 +2095,28 @@ class Game:
         # Топливо (под HP)
         self.fuel_system.draw_hud(self.screen)
         
-        # ===== ПРАВЫЙ ВЕРХНИЙ УГОЛ (с отступом от мини-карты) =====
+        # ===== РЕСУРСЫ =====
+        resource_y = 115
+        resource_colors = {
+            'scrap': (150, 150, 150),
+            'crystal': (100, 200, 255),
+            'fuel': (255, 200, 50),
+        }
+        resource_icons = {
+            'scrap': '[S]',
+            'crystal': '[C]',
+            'fuel': '[F]',
+        }
+        
+        for res_type, amount in self.resources.items():
+            if amount > 0:
+                color = resource_colors.get(res_type, (200, 200, 200))
+                icon = resource_icons.get(res_type, '')
+                text = small_font.render(f"{icon} {amount}", True, color)
+                self.screen.blit(text, (15, resource_y))
+                resource_y += 20
+        
+        # ===== ПРАВЫЙ ВЕРХНИЙ УГОЛ =====
         minimap_width = 150
         right_x = WIDTH - minimap_width - 30
         
@@ -1206,15 +2129,32 @@ class Game:
         bases_rect = bases_text.get_rect(topright=(right_x, 40))
         self.screen.blit(bases_text, bases_rect)
         
+        outposts_alive = sum(1 for o in self.outposts if o.alive)
+        outposts_text = hud_font.render(f"OUTPOSTS: {outposts_alive}", True, (100, 200, 255))
+        outposts_rect = outposts_text.get_rect(topright=(right_x, 65))
+        self.screen.blit(outposts_text, outposts_rect)
+        
         if self.config.get('game.show_fps', False):
             fps_text = small_font.render(f"FPS: {int(self.clock.get_fps())}", True, (100, 100, 100))
-            fps_rect = fps_text.get_rect(topright=(right_x, 65))
+            fps_rect = fps_text.get_rect(topright=(right_x, 90))
             self.screen.blit(fps_text, fps_rect)
         
         if self.config.get('game.debug_mode', False):
             debug_text = small_font.render("DEBUG", True, (255, 200, 50))
-            debug_rect = debug_text.get_rect(topright=(right_x, 90))
+            debug_rect = debug_text.get_rect(topright=(right_x, 115))
             self.screen.blit(debug_text, debug_rect)
+        
+        # ===== ПРЕДУПРЕЖДЕНИЕ О ТОПЛИВЕ =====
+        if self.fuel_system.fuel <= 0:
+            warning_text = hud_font.render("NO FUEL!", True, (255, 50, 50))
+            warning_rect = warning_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+            if pygame.time.get_ticks() % 1000 < 500:
+                self.screen.blit(warning_text, warning_rect)
+        elif self.fuel_system.fuel < 20:
+            warning_text = small_font.render("LOW FUEL", True, (255, 200, 50))
+            warning_rect = warning_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+            if pygame.time.get_ticks() % 1000 < 500:
+                self.screen.blit(warning_text, warning_rect)
         
         # ===== ЛЕВЫЙ НИЖНИЙ УГОЛ =====
         speed_val = math.sqrt(self.ship.speed_x**2 + self.ship.speed_y**2)
@@ -1232,7 +2172,7 @@ class Game:
             pause_rect = pause_text.get_rect(center=(WIDTH // 2, 30))
             self.screen.blit(pause_text, pause_rect)
         
-        # ===== АКТИВНЫЕ ЭФФЕКТЫ (под топливом) =====
+        # ===== АКТИВНЫЕ ЭФФЕКТЫ =====
         effects_colors = {
             'shield': (50, 150, 255),
             'triple_shot': (255, 200, 50),
@@ -1241,7 +2181,7 @@ class Game:
             'magnet': (200, 100, 255),
         }
         
-        y_offset = 115  # Под HP (40) и топливом
+        y_offset = 115 + len(self.resources) * 20 + 10
         for effect, timer in self.powerups.active_effects.items():
             if timer > 0:
                 seconds = timer // 60
@@ -1250,10 +2190,10 @@ class Game:
                 self.screen.blit(effect_text, (15, y_offset))
                 y_offset += 20
         
-        # ===== DEBUG MODE (читы внизу) =====
+        # ===== DEBUG MODE =====
         if self.config.get('game.debug_mode', False):
             cheats_text = small_font.render(
-                "F1:Bomb  F2:Heal  F3:+50  F4:Kill  F5:Spawn  F6:Reload",
+                "F1:Bomb  F2:Heal  F3:+50  F4:Kill  F5:Spawn  F6:Load  F7:Clean  F8:Test  F9:Render  F10:Real",
                 True, (80, 80, 80)
             )
             cheats_rect = cheats_text.get_rect(center=(WIDTH // 2, HEIGHT - 15))
@@ -1262,12 +2202,33 @@ class Game:
             pos_text = small_font.render(f"POS: ({int(self.ship.x)}, {int(self.ship.y)})", True, (80, 80, 80))
             pos_rect = pos_text.get_rect(bottomleft=(15, HEIGHT - 55))
             self.screen.blit(pos_text, pos_rect)
-            
-        # Подсказка по карте
+        
+        # ===== ПОДСКАЗКА ПО КАРТЕ =====
         map_hint = small_font.render("TAB: World Map | RMB: Set Waypoint", True, (80, 80, 100))
         map_rect = map_hint.get_rect(center=(WIDTH // 2, HEIGHT - 40))
-        self.screen.blit(map_hint, map_rect)   
+        self.screen.blit(map_hint, map_rect)
         
+        # ===== ВЗАИМОДЕЙСТВИЕ С АВАНПОСТОМ =====
+        near_outpost = False
+        for outpost in self.outposts:
+            if not outpost.alive:
+                continue
+            dist = math.sqrt((outpost.x - self.ship.x)**2 + (outpost.y - self.ship.y)**2)
+            if dist < 200:
+                near_outpost = True
+                break
+        
+        if near_outpost:
+            interact_text = small_font.render("Press E to interact", True, (255, 255, 100))
+            interact_rect = interact_text.get_rect(center=(WIDTH // 2, HEIGHT - 60))
+            self.screen.blit(interact_text, interact_rect)
+        
+        # Подсказка ангара (только на базе)
+        if self.is_near_base():
+            hangar_hint = small_font.render("[H] Открыть ангар", True, (100, 200, 255))
+            hangar_rect = hangar_hint.get_rect(center=(WIDTH // 2, HEIGHT - 70))
+            self.screen.blit(hangar_hint, hangar_rect)   
+            
     def _draw_game_over(self):
         """Экран Game Over — чистый и понятный"""
         # Затемнение

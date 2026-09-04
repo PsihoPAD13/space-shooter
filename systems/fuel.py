@@ -16,7 +16,7 @@ class FuelSystem:
         # Расход топлива
         self.thrust_consumption = 0.01   # За кадр при движении
         self.warp_consumption = 0.05     # За кадр в варпе
-        self.idle_recovery = 0.02       # Восстановление при стоянии
+        self.idle_recovery = 0.0001       # Восстановление при стоянии
     
     def update(self, ship, is_thrusting, particle_system=None):
         """Обновление топлива"""
@@ -46,6 +46,10 @@ class FuelSystem:
         if self.warp_cooldown > 0:
             self.warp_cooldown -= 1
     
+    def has_fuel(self):
+        """Проверяет, есть ли топливо для движения"""
+        return self.fuel > 0.1
+        
     def activate_warp(self):
         """Активация варпа"""
         if self.warp_cooldown <= 0 and self.fuel > 20:
