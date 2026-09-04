@@ -170,5 +170,3 @@ RESOURCE_ICONS = {
     'crystal': '💎',
     'fuel': '⛽',
 }
-
-DEBUG_MODE = False

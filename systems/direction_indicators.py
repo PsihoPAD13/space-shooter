@@ -70,52 +70,6 @@ class DirectionIndicators:
                 'distance': dist_text,
                 'type': 'enemy'
             })
-        
-        # ===== БАЗЫ ВРАГОВ =====
-        if enemy_bases:
-            for base in enemy_bases:
-                continue
-                if not base.alive:
-                    continue
-                
-                screen_x = base.x - camera_x
-                screen_y = base.y - camera_y
-                
-                if -30 < screen_x < WIDTH + 30 and -30 < screen_y < HEIGHT + 30:
-                    continue
-                
-                dx = base.x - player_x
-                dy = base.y - player_y
-                angle = math.atan2(dy, dx)
-                
-                indicator_x, indicator_y = self._calculate_edge_position(angle)
-                
-                # Цвет базы
-                base_colors = {
-                    'standard': (255, 50, 50),
-                    'strong': (255, 50, 200),
-                    'fast': (255, 200, 50),
-                    'swarm': (200, 50, 255),
-                }
-                color = base_colors.get(base.base_type, (255, 0, 0))
-                
-                dist = math.sqrt(dx**2 + dy**2)
-                if dist > 1000:
-                    dist_text = f"{int(dist // 1000)}k"
-                else:
-                    dist_text = f"{int(dist)}"
-                
-                self.indicators.append({
-                    'x': indicator_x,
-                    'y': indicator_y,
-                    'angle': angle,
-                    'color': color,
-                    'label': 'B',  # База
-                    'distance': dist_text,
-                    'type': 'base',
-                    'base_type': base.base_type,
-                    'enemies': base.current_enemies
-                })
     
     def _calculate_edge_position(self, angle):
         """Вычисляет позицию указателя на краю экрана"""

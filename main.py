@@ -37,5 +37,14 @@ def main():
     pygame.quit()
     sys.exit()
 
+def resource_path(relative_path):
+    """ Получить абсолютный путь к ресурсу, работает и для .exe """
+    try:
+        # PyInstaller создает временную папку и хранит путь в _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+    
 if __name__ == "__main__":
     main()

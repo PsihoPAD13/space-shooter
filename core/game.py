@@ -115,12 +115,9 @@ class Game:
 
         # ===== БАЗА ИГРОКА =====
         from utils import spawn_position_with_safety
-        from settings import DEBUG_MODE
         
         bx, by = spawn_position_with_safety(0, 0, 0, 0, min_distance=500)
         self.player_base = PlayerBase(bx, by)
-        if DEBUG_MODE:
-            print(f"[BASE] База игрока создана в ({int(bx)}, {int(by)})")
         
         # ===== ПРИНУДИТЕЛЬНАЯ ЗАГРУЗКА ЧАНКОВ =====
         self.chunks_loaded = False
@@ -134,20 +131,12 @@ class Game:
         
         # ===== ЕСЛИ НЕТ БАЗ - СОЗДАЁМ ТЕСТОВУЮ =====
         if len(self.enemy_bases) == 0:
-            from settings import DEBUG_MODE
-            if DEBUG_MODE:
-                print(f"[GAME] ⚠️ НЕТ БАЗ! СОЗДАЮ ТЕСТОВУЮ...")
             test_base = EnemyBase(
                 self.ship.x + 800,
                 self.ship.y + 800,
                 'standard'
             )
             self.enemy_bases.append(test_base)
-            if DEBUG_MODE:
-                print(f"[GAME] Тестовая база создана в ({int(test_base.x)}, {int(test_base.y)})")
-                
-        # ===== ЗАГРУЗКА ОБЪЕКТОВ ИЗ ЧАНКОВ =====
-        self._load_chunk_objects()
 
         # ===== НАЧАЛЬНЫЕ ОБЪЕКТЫ (если чанки пустые) =====
         if len(self.asteroids) < 10:
@@ -161,12 +150,6 @@ class Game:
         # ===== ТОПЛИВО =====
         self.fuel_system = FuelSystem(max_fuel=100)
 
-        # ===== АСТЕРОИДЫ =====
-        self._init_asteroids()
-
-        # ===== ИНИЦИАЛИЗАЦИЯ БАЗ ВРАГОВ =====
-        #self._init_bases()
-        
         # ============================================================
         #  ОБРАБОТКА СОБЫТИЙ
         # ============================================================
@@ -217,8 +200,6 @@ class Game:
             # Остальные события
             if event.type == pygame.KEYDOWN:
                 # Чит-коды (только в режиме отладки)
-                if self.config.get('game.debug_mode', False):
-                    self._handle_cheats(event)
                 
                 # Стандартные клавиши
                 if self.game_over:
@@ -244,8 +225,7 @@ class Game:
         
     def _handle_cheats(self, event):
         """Обработка чит-кодов"""
-        from settings import DEBUG_MODE
-        if not DEBUG_MODE:
+        if not self.config.get('game.debug_mode', False):
             return
         
         if event.key == pygame.K_F1:
@@ -349,10 +329,6 @@ class Game:
             # Проверяем, рядом ли с базой
             if self.is_near_base():  # Радиус базы
                 self._open_hangar()
-            else:
-                # Можно добавить сообщение или звук
-                if DEBUG_MODE:
-                    print("[HANGAR] Ангар доступен только на базе!")
             
     # ============================================================
     #  ИГРОВЫЕ МЕХАНИКИ
@@ -431,7 +407,6 @@ class Game:
             
     def _connect_bases_into_complexes(self):
         """Соединяет близкие базы в комплексы (при загрузке)"""
-        from settings import DEBUG_MODE
         
         if len(self.enemy_bases) < 2:
             return
@@ -491,10 +466,7 @@ class Game:
                     base1.max_enemies = 6 + len(complex_bases) * 2
                     base1.current_enemies = base1.max_enemies
                     base1.radius = 45 + len(complex_bases) * 3
-        
-        if DEBUG_MODE:
-            print(f"[BASE] Создано {complexes} комплексов")
-            
+                    
     def _init_asteroids(self):
         """Создаёт начальные астероиды"""
         for _ in range(15):
@@ -508,7 +480,6 @@ class Game:
     def _force_load_base_from_file(self, chunk_x, chunk_y):
         """Прямая загрузка базы из файла чанка"""
         from entities.base import EnemyBase
-        from settings import DEBUG_MODE
         import json
         import os
         
@@ -516,8 +487,6 @@ class Game:
         filename = chunk.get_full_path(self.chunk_manager.world_dir)
         
         if not os.path.exists(filename):
-            if DEBUG_MODE:
-                print(f"[DEBUG] Файл {filename} не существует")
             return False
         
         try:
@@ -526,12 +495,7 @@ class Game:
                 bases = data.get('objects', {}).get('enemy_bases', [])
                 
                 if not bases:
-                    if DEBUG_MODE:
-                        print(f"[DEBUG] В файле {filename} нет баз")
                     return False
-                
-                if DEBUG_MODE:
-                    print(f"[DEBUG] Найдено {len(bases)} баз в файле {filename}")
                 
                 loaded = 0
                 for base_data in bases:
@@ -553,41 +517,22 @@ class Game:
                         base.current_enemies = base_data.get('current_enemies', base.max_enemies)
                         self.enemy_bases.append(base)
                         loaded += 1
-                        if DEBUG_MODE:
-                            print(f"[DEBUG] ✅ ПРИНУДИТЕЛЬНО ЗАГРУЖЕНА база {base.base_type} в ({int(base.x)}, {int(base.y)})")
                 
-                if DEBUG_MODE:
-                    print(f"[DEBUG] Загружено {loaded} новых баз из файла")
                 return True
                 
         except Exception as e:
-            if DEBUG_MODE:
-                print(f"[DEBUG] Ошибка загрузки файла {filename}: {e}")
             return False
 
-    def _load_chunk_objects(self):
-        """Загружает объекты из чанков (обёртка для _force_load_chunk_objects)"""
-        self._force_load_chunk_objects()
-        
     def _force_load_chunk_objects(self):
         """Принудительно загружает все объекты из загруженных чанков"""
         from entities.base import EnemyBase
         from entities.asteroid import Asteroid
         from entities.outpost import Outpost
-        from settings import DEBUG_MODE
-        
-        if DEBUG_MODE:
-            print(f"[GAME] === ПРИНУДИТЕЛЬНАЯ ЗАГРУЗКА ===")
-        
+                
         # Перезагружаем все чанки из файлов
         for key, chunk in list(self.chunk_manager.chunks.items()):
             if chunk.loaded:
                 chunk.load(self.chunk_manager.world_dir)
-                if DEBUG_MODE:
-                    bases = chunk.objects.get('enemy_bases', [])
-                    outposts = chunk.objects.get('outposts', [])
-                    if bases or outposts:
-                        print(f"[GAME] Чанк {key}: {len(bases)} баз, {len(outposts)} аванпостов")
         
         # Очищаем старые объекты
         self.enemy_bases.clear()
@@ -630,15 +575,10 @@ class Game:
                 outpost.resources = outpost_data.get('resources', {'scrap': 100, 'crystal': 20, 'fuel': 50})
                 outpost.missions = outpost_data.get('missions', [])
                 self.outposts.append(outpost)
-                if DEBUG_MODE:
-                    print(f"[GAME] Загружен аванпост {outpost.outpost_type} в ({int(outpost.x)}, {int(outpost.y)})")
         
         # Соединяем базы в комплексы
         if len(self.enemy_bases) > 1:
             self._connect_bases_into_complexes()
-        
-        if DEBUG_MODE:
-            print(f"[GAME] Итог: {len(self.enemy_bases)} баз, {len(self.asteroids)} астероидов, {len(self.outposts)} аванпостов")
 
     def spawn_enemy(self, x, y, enemy_type=None, difficulty_multiplier=1.0):
         """Создаёт врага указанного типа"""
@@ -762,7 +702,7 @@ class Game:
         
         # Пересоздаём чанки и загружаем объекты
         self.chunk_manager = ChunkManager(config=self.config)
-        self._load_chunk_objects()
+        self._force_load_chunk_objects()
         
         # Пересоздаём базу игрока
         from utils import spawn_position_with_safety
@@ -820,9 +760,6 @@ class Game:
         
         # При переходе в новый чанк - перезагружаем объекты
         if old_chunk_x != new_chunk_x or old_chunk_y != new_chunk_y:
-            from settings import DEBUG_MODE
-            if DEBUG_MODE:
-                print(f"[GAME] Переход в новый чанк ({new_chunk_x}, {new_chunk_y})")
             self._force_load_chunk_objects()
         
         # Обновление баз врагов
@@ -1189,8 +1126,6 @@ class Game:
                             res_type = resources.get('type', 'scrap')
                             amount = resources.get('amount', 0)
                             self.resources[res_type] = self.resources.get(res_type, 0) + amount
-                            if DEBUG_MODE:
-                                print(f"[RESOURCE] +{amount} {res_type}")
                         
                         self.asteroids.remove(asteroid)
                         self.spatial_grid.remove(asteroid)
@@ -1298,8 +1233,6 @@ class Game:
             res_type = resources.get('type', 'scrap')
             amount = resources.get('amount', 0)
             self.resources[res_type] = self.resources.get(res_type, 0) + amount
-            if DEBUG_MODE:
-                print(f"[RESOURCE] +{amount} {res_type} (столкновение)")
         
         self.asteroids.remove(asteroid)
         self.spatial_grid.remove(asteroid)
@@ -1367,72 +1300,19 @@ class Game:
         if self.ship.health <= 0:
             self.game_over = True
             
-    def _debug_check_chunk_file(self, chunk_x, chunk_y):
-        """Прямая проверка файла чанка на наличие баз"""
-        from settings import DEBUG_MODE
-        if not DEBUG_MODE:
-            return
-        
-        import json
-        import os
-        
-        chunk = self.chunk_manager.get_chunk(chunk_x, chunk_y)
-        filename = chunk.get_full_path(self.chunk_manager.world_dir)
-        
-        if os.path.exists(filename):
-            print(f"[DEBUG] Файл чанка {chunk.get_chunk_id()} существует: {filename}")
-            with open(filename, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                bases = data.get('objects', {}).get('enemy_bases', [])
-                print(f"[DEBUG] В файле найдено баз: {len(bases)}")
-                for base in bases:
-                    print(f"  - База на ({int(base['x'])}, {int(base['y'])}) типа {base.get('base_type')}")
-                
-                # Проверяем, загружена ли эта база в игру
-                loaded = False
-                for game_base in self.enemy_bases:
-                    if abs(game_base.x - base['x']) < 10 and abs(game_base.y - base['y']) < 10:
-                        loaded = True
-                        break
-                
-                if not loaded and bases:
-                    print(f"[DEBUG] ⚠️ База из файла НЕ ЗАГРУЖЕНА в игру!")
-                    # Принудительно загружаем
-                    from entities.base import EnemyBase
-                    for base_data in bases:
-                        base = EnemyBase(
-                            base_data['x'],
-                            base_data['y'],
-                            base_data.get('base_type', 'standard')
-                        )
-                        base.health = base_data.get('health', 100)
-                        base.max_health = base_data.get('max_health', 100)
-                        base.current_enemies = base_data.get('current_enemies', base.max_enemies)
-                        self.enemy_bases.append(base)
-                        print(f"[DEBUG] ✅ ПРИНУДИТЕЛЬНО ЗАГРУЖЕНА база {base.base_type} в ({int(base.x)}, {int(base.y)})")
-        else:
-            print(f"[DEBUG] Файл чанка {chunk.get_chunk_id()} НЕ СУЩЕСТВУЕТ")
-
     def _save_modified_chunks(self):
         """Сохраняет только изменённые чанки"""
-        from settings import DEBUG_MODE
         
         saved = self.chunk_manager.save_modified_chunks()
         
-        if DEBUG_MODE and saved > 0:
-            print(f"[SAVE] Сохранено {saved} изменённых чанков")
         return saved
         
     def _save_player_chunk(self):
         """Сохраняет чанк в котором находится игрок"""
-        from settings import DEBUG_MODE
         
         chunk_x = int(self.ship.x // CHUNK_SIZE)
         chunk_y = int(self.ship.y // CHUNK_SIZE)
-        
-        if DEBUG_MODE:
-            print(f"[SAVE] Сохранение чанка игрока ({chunk_x}, {chunk_y})...")
-        
+                
         self.chunk_manager.save_chunk_immediately(chunk_x, chunk_y)
 
     def _run_load_test(self):
@@ -1924,9 +1804,6 @@ class Game:
         # Звёзды
         self.starfield.draw(self.screen, camera_x, camera_y)
 
-        # ===== ОТЛАДОЧНАЯ СЕТКА ЧАНКОВ =====
-        self.chunk_manager.draw_debug_grid(self.screen, camera_x, camera_y, self.ship.x, self.ship.y)
-        
         # Астероиды
         for asteroid in self.asteroids:
             asteroid.draw(self.screen, camera_x, camera_y)

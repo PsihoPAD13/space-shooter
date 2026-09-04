@@ -1,7 +1,6 @@
 # systems/sprite_manager.py
 import pygame
 import json
-from settings import DEBUG_MODE
 
 class SpriteManager:
     def __init__(self, config_path='assets/config/sprites.json'):
@@ -20,10 +19,7 @@ class SpriteManager:
                 for sprite_id, data in self.config.get(category, {}).items():
                     sprite_path = f"assets/sprites/{data['sprite']}"
                     self.load_sprite(sprite_id, sprite_path)
-            
-            if DEBUG_MODE:
-                print(f"[SPRITE] Загружено {len(self.sprites)} спрайтов")
-            
+                   
         except Exception as e:
             print(f"[SPRITE] Ошибка загрузки конфига: {e}")
     

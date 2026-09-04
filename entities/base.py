@@ -103,9 +103,6 @@ class EnemyBase:
             other.connected = True
             other.color = self.color
             other.base_type = self.base_type
-            from settings import DEBUG_MODE
-            if DEBUG_MODE:
-                print(f"[BASE] 🔗 Соединены: ({int(self.x)}, {int(self.y)}) -> ({int(other.x)}, {int(other.y)})")
                 
     def is_connected_to(self, other):
         """Проверить соединение"""

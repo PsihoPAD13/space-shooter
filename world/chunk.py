@@ -3,7 +3,7 @@ import json
 import math
 import os
 import random
-from settings import CHUNK_SIZE, REGION_CHUNKS, DEBUG_MODE  # <-- ДОБАВИТЬ ИМПОРТ
+from settings import CHUNK_SIZE, REGION_CHUNKS
 
 class Chunk:
     """Один чанк мира (8к x 8к пикселей)"""
@@ -71,15 +71,11 @@ class Chunk:
         
         # 2. БАЗЫ ВРАГОВ
         if self.chunk_x == 0 and self.chunk_y == 0:
-            if DEBUG_MODE:
-                print(f"[CHUNK] Центральный чанк (0,0) - без баз")
+            return
         else:
             # Больше баз в чанке для комплексов
             base_count = random.choices([0, 1, 2, 3, 4, 5], weights=[10, 20, 25, 20, 15, 10])[0]
-            
-            if DEBUG_MODE:
-                print(f"[CHUNK] Чанк {self.get_chunk_id()}: будет {base_count} баз")
-            
+                        
             if base_count > 0:
                 base_positions = []
                 for _ in range(base_count):
@@ -129,12 +125,7 @@ class Chunk:
                             'swarm': 30,
                         }.get(base_type, 60)
                     })
-                
-                if DEBUG_MODE:
-                    print(f"[CHUNK] Чанк {self.get_chunk_id()}: {len(base_positions)} баз")
-                    for bx, by in base_positions:
-                        print(f"  - База на ({int(bx)}, {int(by)})")
-        
+                        
         # 3. Ресурсы
         resource_count = random.randint(3, 8)
         for _ in range(resource_count):
@@ -166,12 +157,6 @@ class Chunk:
                     'missions': self._generate_missions_for_outpost()
                 })
                 
-                if DEBUG_MODE:
-                    print(f"[CHUNK] Чанк {self.get_chunk_id()} сгенерирован!")
-                    print(f"[CHUNK]    Астероидов: {len(self.objects['asteroids'])}")
-                    print(f"[CHUNK]    Баз: {len(self.objects['enemy_bases'])}")
-                    print(f"[CHUNK]    Аванпостов: {len(self.objects['outposts'])}")
-                            
         self.generated = True
         self.modified = True
 
@@ -260,8 +245,6 @@ class Chunk:
         filename = self.get_full_path(world_dir)
         
         if not os.path.exists(filename):
-            if DEBUG_MODE:
-                print(f"[CHUNK] Файл {filename} не найден, генерирую новый")
             self.generate()
             return
         
@@ -274,14 +257,7 @@ class Chunk:
                 self.loaded = True
                 self.modified = False
                 
-                if DEBUG_MODE:
-                    bases = self.objects.get('enemy_bases', [])
-                    print(f"[CHUNK] Загружен чанк {self.get_chunk_id()} из {filename} с {len(bases)} базами")
-                    for base in bases:
-                        print(f"  - База на ({int(base['x'])}, {int(base['y'])}) типа {base.get('base_type')}")
         except Exception as e:
-            if DEBUG_MODE:
-                print(f"[CHUNK] Ошибка загрузки чанка {self.get_chunk_id()}: {e}")
             self.generate()
             
     def unload(self):
@@ -297,15 +273,9 @@ class Chunk:
                 del bases[i]
                 self.modified = True
                 
-                from settings import DEBUG_MODE
-                if DEBUG_MODE:
-                    print(f"[CHUNK] База удалена из чанка {self.get_chunk_id()}")
-                
                 # ПРИНУДИТЕЛЬНО СОХРАНЯЕМ
                 if world_dir:
                     self.save(world_dir)
-                    if DEBUG_MODE:
-                        print(f"[CHUNK] ✅ Чанк сохранён после удаления базы")
                 return True
         return False
         
