@@ -26,7 +26,7 @@ class Ship:
         self.max_speed = SHIP_MAX_SPEED
         self.shield_active = False
         self.warp_multiplier = 1.0  # Множитель скорости (1 = норма, 5 = варп)
-        self.normal_max_speed = SHIP_MAX_SPEED
+        self.normal_max_speed = SHIP_MAX_SPEED  # <-- Будет перезаписан в _apply_hull()
         self.warp_max_speed = SHIP_MAX_SPEED * 10
         
         self.shoot_cooldown = 0
@@ -44,6 +44,8 @@ class Ship:
         
         # Загружаем начальный корпус
         self._apply_hull(self.current_hull)
+        
+        self.max_speed = self.normal_max_speed
         
         # Оружие
         self.weapons = []
@@ -103,7 +105,6 @@ class Ship:
         self.engine_on = False
     
     def _apply_hull(self, hull_id):
-        """Применяет корпус из JSON"""
         if not self.sprite_manager:
             return
         
@@ -112,7 +113,17 @@ class Ship:
             self.sprite = self.sprite_manager.get(hull_id)
             self.radius = data.get('size', [64, 64])[0] // 2
             self.current_hull = hull_id
-            print(f"[SHIP] Корпус: {hull_id}, радиус: {self.radius}")
+            
+            stats = data.get('stats', {})
+            self.max_health = stats.get('hp', 100)
+            self.health = self.max_health
+            
+            # ===== ПРИМЕНЯЕМ СКОРОСТЬ =====
+            speed_multiplier = stats.get('speed', 1.0)
+            self.normal_max_speed = SHIP_MAX_SPEED * speed_multiplier
+            self.max_speed = self.normal_max_speed  # <-- ПРИНУДИТЕЛЬНО ОБНОВЛЯЕМ
+            
+            print(f"[SHIP] Корпус: {hull_id}, HP: {self.max_health}, Speed: {self.normal_max_speed}")
     
     def _init_weapons(self):
         """Создаёт оружие из слотов корпуса"""
@@ -229,14 +240,13 @@ class Ship:
                        self.health, self.max_health)
                        
     def set_warp(self, active):
-        """Включение/выключение варпа"""
         if active:
             self.warp_multiplier = 10.0
             self.max_speed = self.warp_max_speed
         else:
             self.warp_multiplier = 1.0
-            self.max_speed = self.normal_max_speed
-
+            self.max_speed = self.normal_max_speed    
+            
     def is_warping(self):
         return self.warp_multiplier > 1.0
         
@@ -264,3 +274,11 @@ class Ship:
         if self.shield_active:
             return self.radius + 10
         return self.radius
+
+    def update_speed(self):
+        """Принудительно обновляет текущую скорость"""
+        if self.is_warping():
+            self.max_speed = self.warp_max_speed
+        else:
+            self.max_speed = self.normal_max_speed
+        print(f"[SHIP] Speed updated: {self.max_speed}")

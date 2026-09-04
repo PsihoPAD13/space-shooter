@@ -9,16 +9,20 @@ class Weapon:
         self.sprite_manager = sprite_manager
         self.slot_offset = slot_offset
         
-        # Загружаем данные из JSON
         self.data = sprite_manager.get_sprite_data('weapons', weapon_id)
         if not self.data:
-            print(f"[WEAPON] ❌ Не найдено: {weapon_id}")
-            self.data = {'type': 'static', 'stats': {'damage': 10}}
+            self.data = {'type': 'static', 'stats': {'damage': 10, 'fire_rate': 0.3}}
         
         self.weapon_type = self.data.get('type', 'static')
         self.sprite = sprite_manager.get(weapon_id)
         self.pivot = self.data.get('pivot', [8, 8])
         self.angle = 0
+        
+        # ===== ПРИМЕНЯЕМ СТАТЫ =====
+        stats = self.data.get('stats', {})
+        self.damage = stats.get('damage', 10)
+        self.fire_rate = stats.get('fire_rate', 0.3)
+        self.shoot_delay = int(60 * self.fire_rate)  # Чем меньше fire_rate, тем чаще стрельба
     
     def aim(self, target_x, target_y, ship_x, ship_y, ship_angle=0):
         if self.weapon_type == 'turret':
@@ -72,9 +76,11 @@ class Weapon:
         
         # Скорость пули
         bullet_speed = 10
-        speed_x = math.cos(angle_rad) * bullet_speed + ship_speed_x * 0.3
-        speed_y = math.sin(angle_rad) * bullet_speed + ship_speed_y * 0.3
+        speed_x = math.cos(angle_rad) * bullet_speed + ship_speed_x
+        speed_y = math.sin(angle_rad) * bullet_speed + ship_speed_y
         
+        # Создаём пулю с уроном
         from entities.bullet import Bullet
-        bullets.append(Bullet(bullet_x, bullet_y, speed_x, speed_y))
-        
+        bullet = Bullet(bullet_x, bullet_y, speed_x, speed_y)
+        bullet.damage = self.damage  # <-- ПЕРЕДАЁМ УРОН
+        bullets.append(bullet)

@@ -11,6 +11,7 @@ class Bullet:
         self.speed_y = speed_y
         self.radius = BULLET_RADIUS
         self.life = BULLET_LIFE
+        self.damage = 10  # <-- ДОБАВЛЯЕМ, будет перезаписываться из пушки
     
     def update(self):
         self.x += self.speed_x

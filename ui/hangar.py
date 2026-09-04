@@ -134,6 +134,7 @@ class Hangar:
         
         # Применяем корпус
         self.ship._apply_hull(hull_id)
+        self.ship.update_speed()  # <-- ДОБАВЛЯЕМ
         
         # Применяем оружие
         weapon_id = self.current_parts.get('weapons', 'weapon_static')

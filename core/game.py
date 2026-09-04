@@ -58,7 +58,8 @@ class Game:
         self.chunk_manager = ChunkManager()
 
         # ===== КОРАБЛЬ =====
-        self.ship = Ship(0, 0, self.sprite_manager) 
+        self.ship = Ship(0, 0, self.sprite_manager)
+        self.ship.max_speed = self.ship.normal_max_speed
         self.camera = Camera(self.ship.x, self.ship.y, WIDTH, HEIGHT)
 
         # ===== ИГРОВЫЕ СИСТЕМЫ =====
@@ -79,6 +80,9 @@ class Game:
         
         # ===== АНГАР =====
         self.hangar = None
+        self.hangar_not_available = False
+        self.hangar_not_available_timer = 0
+        
         # Сохраняем выбранные детали для ангара (между открытиями)
         self.hangar_state = {
             'current_parts': {
@@ -326,9 +330,12 @@ class Game:
             
         # Открыть ангар (H) - только на базе
         if keys[pygame.K_h]:
-            # Проверяем, рядом ли с базой
-            if self.is_near_base():  # Радиус базы
+            if self.is_near_base():
                 self._open_hangar()
+            else:
+                # Можно добавить сообщение в HUD
+                self.hangar_not_available = True
+                self.hangar_not_available_timer = 120  # 2 секунды
             
     # ============================================================
     #  ИГРОВЫЕ МЕХАНИКИ
@@ -650,6 +657,10 @@ class Game:
 
     def _open_hangar(self):
         """Открывает ангар"""
+        if not self.is_near_base():
+            print("[HANGAR] ОШИБКА: попытка открыть ангар не на базе!")
+            return
+    
         from ui.hangar import Hangar
         # Передаём сохранённое состояние
         self.hangar = Hangar(
@@ -838,6 +849,12 @@ class Game:
             self.enemy_bases
         )
 
+        # Таймер сообщения об ангаре
+        if self.hangar_not_available_timer > 0:
+            self.hangar_not_available_timer -= 1
+            if self.hangar_not_available_timer == 0:
+                self.hangar_not_available = False
+                
         # ===== КОЛЛИЗИИ =====
         self._check_all_collisions()
 
@@ -1047,7 +1064,7 @@ class Game:
                     continue
                 
                 if circle_collision(bullet, enemy):
-                    enemy.health -= 1
+                    enemy.health -= bullet.damage
                     self.bullets.remove(bullet)
                     
                     self.particles.spawn_explosion(
@@ -2100,7 +2117,15 @@ class Game:
             interact_rect = interact_text.get_rect(center=(WIDTH // 2, HEIGHT - 60))
             self.screen.blit(interact_text, interact_rect)
         
-        # Подсказка ангара (только на базе)
+        # ===== СООБЩЕНИЕ ОБ АНГАРЕ =====
+        if self.hangar_not_available:
+            msg_text = small_font.render("Ангар доступен только на базе!", True, (255, 100, 100))
+            msg_rect = msg_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 100))
+            # Мерцание
+            if pygame.time.get_ticks() % 1000 < 500:
+                self.screen.blit(msg_text, msg_rect)
+        
+        # ===== ПОДСКАЗКА АНГАРА (только на базе) =====
         if self.is_near_base():
             hangar_hint = small_font.render("[H] Открыть ангар", True, (100, 200, 255))
             hangar_rect = hangar_hint.get_rect(center=(WIDTH // 2, HEIGHT - 70))

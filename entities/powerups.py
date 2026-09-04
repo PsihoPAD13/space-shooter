@@ -188,13 +188,13 @@ class PowerUpSystem:
                 if effect == 'shield':
                     ship.shield_active = False
                 elif effect == 'speed_boost':
-                    ship.max_speed = 8
-                #print(f"Effect {effect} expired")
+                    ship.max_speed = ship.normal_max_speed  # <-- ИСПРАВЛЕНО
+                    print(f"[POWERUP] Speed boost expired, speed = {ship.max_speed}")
         
         if 'speed_boost' in self.active_effects:
             ship.max_speed = 12
         else:
-            ship.max_speed = 8
+            ship.max_speed = ship.normal_max_speed  # <-- ИСПРАВЛЕНО
         
         if 'shield' in self.active_effects:
             ship.shield_active = True
